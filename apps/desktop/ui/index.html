@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hesoyam</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #09090b;
+      color: #fafafa;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    .container { text-align: center; padding: 2rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    p { color: #a1a1aa; font-size: 0.875rem; }
+    .status { margin-top: 1.5rem; padding: 1rem; background: #18181b; border-radius: 12px; border: 1px solid #27272a; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .dot.active { background: #10b981; }
+    .dot.idle { background: #71717a; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Hesoyam</h1>
+    <p>Game tracking is running in the background.</p>
+    <div class="status" id="status">
+      <span class="dot idle"></span>
+      <span>No game detected</span>
+    </div>
+  </div>
+  <script>
+    const { invoke } = window.__TAURI__.core;
+
+    async function updateStatus() {
+      try {
+        const status = await invoke('get_tracking_status');
+        const el = document.getElementById('status');
+        if (status.is_tracking && status.active_sessions.length > 0) {
+          const session = status.active_sessions[0];
+          const mins = Math.floor(session.duration_secs / 60);
+          const hrs = Math.floor(mins / 60);
+          const m = mins % 60;
+          el.innerHTML = `<span class="dot active"></span><span>Playing: ${session.game_name} (${hrs}h ${m}m)</span>`;
+        } else {
+          el.innerHTML = '<span class="dot idle"></span><span>No game detected</span>';
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    updateStatus();
+    setInterval(updateStatus, 5000);
+  </script>
+</body>
+</html>

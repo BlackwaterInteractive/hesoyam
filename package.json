@@ -1,0 +1,12 @@
+{
+  "name": "hesoyam",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --filter @hesoyam/web dev",
+    "build:web": "pnpm --filter @hesoyam/web build",
+    "lint:web": "pnpm --filter @hesoyam/web lint"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

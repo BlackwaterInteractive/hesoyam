@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hesoyam Settings</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #09090b;
+      color: #fafafa;
+      padding: 1.5rem;
+    }
+    h1 { font-size: 1.25rem; margin-bottom: 1.5rem; }
+    h2 { font-size: 0.875rem; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; margin-top: 1.5rem; }
+    .card {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid #27272a;
+    }
+    .row:last-child { border-bottom: none; }
+    .label { font-size: 0.875rem; }
+    .sublabel { font-size: 0.75rem; color: #71717a; margin-top: 2px; }
+    .toggle {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      background: #3f3f46;
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle.active { background: #10b981; }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle.active::after { transform: translateX(18px); }
+    .btn {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn-primary { background: #10b981; color: white; }
+    .btn-primary:hover { background: #059669; }
+    .btn-danger { background: #27272a; color: #ef4444; }
+    .btn-danger:hover { background: #3f3f46; }
+    .btn-secondary { background: #27272a; color: #fafafa; }
+    .btn-secondary:hover { background: #3f3f46; }
+    .auth-section { text-align: center; padding: 2rem 1rem; }
+    .auth-section p { color: #a1a1aa; margin-bottom: 1rem; font-size: 0.875rem; }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+    .status-badge.connected { background: #064e3b; color: #6ee7b7; }
+    .status-badge.disconnected { background: #451a03; color: #fbbf24; }
+    .actions { display: flex; gap: 0.5rem; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Settings</h1>
+
+  <div id="auth-section">
+    <!-- Will be populated by JS -->
+  </div>
+
+  <h2>Tracking</h2>
+  <div class="card">
+    <div class="row">
+      <div>
+        <div class="label">Auto-start on login</div>
+        <div class="sublabel">Launch Hesoyam when Windows starts</div>
+      </div>
+      <div class="toggle" id="autostart" onclick="toggleAutostart()"></div>
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">Idle detection</div>
+        <div class="sublabel">Pause tracking after 5 min of inactivity</div>
+      </div>
+      <div class="toggle active" id="idle-detection" onclick="toggleIdleDetection()"></div>
+    </div>
+  </div>
+
+  <h2>Account</h2>
+  <div class="card">
+    <div class="row">
+      <div>
+        <div class="label">Open Dashboard</div>
+        <div class="sublabel">View your stats in the browser</div>
+      </div>
+      <button class="btn btn-secondary" onclick="openDashboard()">Open</button>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-danger" id="signout-btn" onclick="signOut()" style="display:none">Sign Out</button>
+  </div>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+
+    async function checkAuth() {
+      try {
+        const isAuthed = await invoke('get_auth_status');
+        const section = document.getElementById('auth-section');
+        const signoutBtn = document.getElementById('signout-btn');
+
+        if (isAuthed) {
+          section.innerHTML = `
+            <div class="card" style="display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div class="label">Account</div>
+                <span class="status-badge connected">Connected</span>
+              </div>
+            </div>
+          `;
+          signoutBtn.style.display = 'inline-block';
+        } else {
+          section.innerHTML = `
+            <div class="auth-section">
+              <p>Connect your Hesoyam account to sync your game sessions to the cloud.</p>
+              <button class="btn btn-primary" onclick="startAuth()">Connect Account</button>
+            </div>
+          `;
+          signoutBtn.style.display = 'none';
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function startAuth() {
+      try {
+        await invoke('start_auth_flow');
+        checkAuth();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function signOut() {
+      try {
+        await invoke('sign_out');
+        checkAuth();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function openDashboard() {
+      window.__TAURI__.shell.open('https://hesoyam.gg/dashboard');
+    }
+
+    function toggleAutostart() {
+      const el = document.getElementById('autostart');
+      el.classList.toggle('active');
+    }
+
+    function toggleIdleDetection() {
+      const el = document.getElementById('idle-detection');
+      el.classList.toggle('active');
+    }
+
+    checkAuth();
+  </script>
+</body>
+</html>
