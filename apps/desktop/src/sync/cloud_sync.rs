@@ -265,22 +265,14 @@ impl CloudSync {
     }
 
     /// Sync game signatures from the cloud to local DB.
+    /// Does not require authentication — signatures are public data.
     pub async fn sync_signatures(&self) -> Result<()> {
-        let auth = match self.get_auth_header() {
-            Some(a) => a,
-            None => {
-                log::info!("Skipping signature sync: not authenticated");
-                return Ok(());
-            }
-        };
-
         let resp = self
             .client
             .get(format!(
                 "{}/functions/v1/game-signatures",
                 SUPABASE_URL
             ))
-            .header("Authorization", &auth)
             .header("apikey", SUPABASE_ANON_KEY)
             .send()
             .await?;
