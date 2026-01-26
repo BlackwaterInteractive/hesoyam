@@ -68,7 +68,7 @@ function CustomTooltip({
 }
 
 export function WeeklyChart({ data }: WeeklyChartProps) {
-  const chartData = buildChartData(data)
+  const chartData = buildChartData(data ?? [])
   const maxHours = Math.max(...chartData.map((d) => d.hours), 1)
 
   return (

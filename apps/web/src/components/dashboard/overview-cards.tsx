@@ -5,7 +5,7 @@ import { formatDuration } from '@/lib/utils'
 interface PeriodStats {
   total_secs: number
   game_count: number
-  session_count: number
+  session_count?: number
 }
 
 interface OverviewCardsProps {
@@ -23,7 +23,7 @@ function StatCard({
   label: string
   totalSecs: number
   gameCount: number
-  sessionCount: number
+  sessionCount?: number
 }) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
@@ -35,10 +35,14 @@ function StatCard({
         <span>
           {gameCount} {gameCount === 1 ? 'game' : 'games'}
         </span>
-        <span className="h-1 w-1 rounded-full bg-zinc-700" />
-        <span>
-          {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'}
-        </span>
+        {sessionCount != null && (
+          <>
+            <span className="h-1 w-1 rounded-full bg-zinc-700" />
+            <span>
+              {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'}
+            </span>
+          </>
+        )}
       </div>
     </div>
   )

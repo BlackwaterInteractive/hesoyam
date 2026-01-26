@@ -11,9 +11,20 @@
     "withGlobalTauri": true,
     "trayIcon": {
       "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
+      "iconAsTemplate": false
     },
     "windows": [
+      {
+        "title": "Hesoyam",
+        "label": "main",
+        "url": "index.html",
+        "width": 420,
+        "height": 320,
+        "resizable": false,
+        "visible": true,
+        "center": true,
+        "decorations": true
+      },
       {
         "title": "Hesoyam Settings",
         "label": "settings",

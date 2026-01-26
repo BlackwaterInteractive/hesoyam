@@ -10,50 +10,177 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #09090b;
       color: #fafafa;
+      padding: 2rem;
+      user-select: none;
+    }
+    .header {
       display: flex;
       align-items: center;
-      justify-content: center;
-      height: 100vh;
+      gap: 10px;
+      margin-bottom: 1.5rem;
     }
-    .container { text-align: center; padding: 2rem; }
-    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-    p { color: #a1a1aa; font-size: 0.875rem; }
-    .status { margin-top: 1.5rem; padding: 1rem; background: #18181b; border-radius: 12px; border: 1px solid #27272a; }
-    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .header h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #10b981;
+    }
+    .header .version {
+      font-size: 0.7rem;
+      color: #52525b;
+      background: #18181b;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .card {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+    }
+    .card-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #71717a;
+      margin-bottom: 0.5rem;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
     .dot.active { background: #10b981; }
-    .dot.idle { background: #71717a; }
+    .dot.idle { background: #3f3f46; }
+    .dot.warning { background: #f59e0b; }
+    .status-text { font-size: 0.875rem; }
+    .stat-value { font-size: 1.5rem; font-weight: 700; }
+    .stat-sub { font-size: 0.75rem; color: #71717a; margin-top: 2px; }
+    .btn {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-weight: 500;
+      color: white;
+    }
+    .btn-primary { background: #10b981; }
+    .btn-primary:hover { background: #059669; }
+    .btn-sm {
+      padding: 0.35rem 0.75rem;
+      font-size: 0.75rem;
+    }
+    .hint {
+      text-align: center;
+      color: #52525b;
+      font-size: 0.7rem;
+      margin-top: 1rem;
+    }
+    .auth-prompt {
+      text-align: center;
+      padding: 1rem 0;
+    }
+    .auth-prompt p {
+      color: #a1a1aa;
+      font-size: 0.8rem;
+      margin-bottom: 0.75rem;
+    }
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="header">
     <h1>Hesoyam</h1>
-    <p>Game tracking is running in the background.</p>
-    <div class="status" id="status">
-      <span class="dot idle"></span>
-      <span>No game detected</span>
+    <span class="version">v0.1.0</span>
+  </div>
+
+  <div id="auth-card" class="card" style="display:none">
+    <div class="auth-prompt">
+      <p>Connect your account to sync game sessions to the cloud.</p>
+      <button class="btn btn-primary" onclick="startAuth()">Connect Account</button>
     </div>
   </div>
+
+  <div class="card">
+    <div class="card-label">Status</div>
+    <div class="status-row" id="tracking-status">
+      <span class="dot idle"></span>
+      <span class="status-text">Starting up...</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Today</div>
+    <div class="stat-value" id="today-time">0h 0m</div>
+    <div class="stat-sub" id="today-sub">No games tracked yet</div>
+  </div>
+
+  <p class="hint">This window can be closed &mdash; Hesoyam continues tracking in the system tray.</p>
+
   <script>
     const { invoke } = window.__TAURI__.core;
+
+    async function checkAuth() {
+      try {
+        const isAuthed = await invoke('get_auth_status');
+        const card = document.getElementById('auth-card');
+        card.style.display = isAuthed ? 'none' : 'block';
+      } catch (e) {
+        console.error('Auth check failed:', e);
+      }
+    }
+
+    async function startAuth() {
+      try {
+        await invoke('start_auth_flow');
+        checkAuth();
+      } catch (e) {
+        console.error('Auth flow failed:', e);
+      }
+    }
 
     async function updateStatus() {
       try {
         const status = await invoke('get_tracking_status');
-        const el = document.getElementById('status');
+        const el = document.getElementById('tracking-status');
+        const todayTime = document.getElementById('today-time');
+        const todaySub = document.getElementById('today-sub');
+
         if (status.is_tracking && status.active_sessions.length > 0) {
           const session = status.active_sessions[0];
           const mins = Math.floor(session.duration_secs / 60);
           const hrs = Math.floor(mins / 60);
           const m = mins % 60;
-          el.innerHTML = `<span class="dot active"></span><span>Playing: ${session.game_name} (${hrs}h ${m}m)</span>`;
+          el.innerHTML = `<span class="dot active"></span><span class="status-text">Playing: ${session.game_name} (${hrs}h ${m}m)</span>`;
         } else {
-          el.innerHTML = '<span class="dot idle"></span><span>No game detected</span>';
+          el.innerHTML = '<span class="dot idle"></span><span class="status-text">No game detected</span>';
+        }
+
+        const totalMins = Math.floor(status.today_total_secs / 60);
+        const totalHrs = Math.floor(totalMins / 60);
+        const remMins = totalMins % 60;
+        todayTime.textContent = `${totalHrs}h ${remMins}m`;
+
+        if (status.active_sessions.length > 0) {
+          todaySub.textContent = `${status.active_sessions.length} game${status.active_sessions.length > 1 ? 's' : ''} active`;
+        } else if (status.today_total_secs > 0) {
+          todaySub.textContent = 'Session ended';
+        } else {
+          todaySub.textContent = 'No games tracked yet';
         }
       } catch (e) {
-        console.error(e);
+        console.error('Status update failed:', e);
       }
     }
 
+    checkAuth();
     updateStatus();
     setInterval(updateStatus, 5000);
   </script>

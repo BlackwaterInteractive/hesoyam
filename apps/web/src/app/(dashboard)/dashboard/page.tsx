@@ -4,17 +4,11 @@ import { LiveSessionCard } from '@/components/dashboard/live-session-card'
 import { RecentSessions } from '@/components/dashboard/recent-sessions'
 import { WeeklyChart } from '@/components/dashboard/weekly-chart'
 
-interface DashboardOverview {
-  today_secs: number
-  today_games: number
-  today_sessions: number
-  week_secs: number
-  week_games: number
-  week_sessions: number
-  month_secs: number
-  month_games: number
-  month_sessions: number
-  daily_breakdown: Array<{ date: string; total_secs: number }>
+interface RpcOverview {
+  today: { total_secs: number; game_count: number }
+  this_week: { total_secs: number; game_count: number }
+  this_month: { total_secs: number; game_count: number }
+  live_session: unknown
 }
 
 export default async function DashboardPage() {
@@ -38,18 +32,31 @@ export default async function DashboardPage() {
     p_user_id: user.id,
   })
 
-  const stats = (overview as DashboardOverview | null) ?? {
-    today_secs: 0,
-    today_games: 0,
-    today_sessions: 0,
-    week_secs: 0,
-    week_games: 0,
-    week_sessions: 0,
-    month_secs: 0,
-    month_games: 0,
-    month_sessions: 0,
-    daily_breakdown: [],
+  const rpc = (overview as RpcOverview | null) ?? {
+    today: { total_secs: 0, game_count: 0 },
+    this_week: { total_secs: 0, game_count: 0 },
+    this_month: { total_secs: 0, game_count: 0 },
+    live_session: null,
   }
+
+  // Fetch daily breakdown for the last 7 days
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  const { data: dailySessions } = await supabase
+    .from('game_sessions')
+    .select('started_at, duration_secs')
+    .eq('user_id', user.id)
+    .gte('started_at', sevenDaysAgo.toISOString())
+
+  const dayMap = new Map<string, number>()
+  for (const s of dailySessions ?? []) {
+    const date = s.started_at.slice(0, 10)
+    dayMap.set(date, (dayMap.get(date) ?? 0) + s.duration_secs)
+  }
+  const dailyBreakdown = Array.from(dayMap.entries()).map(([date, total_secs]) => ({
+    date,
+    total_secs,
+  }))
 
   // Fetch live session (ended_at IS NULL)
   const { data: liveSessions } = await supabase
@@ -103,25 +110,22 @@ export default async function DashboardPage() {
       {/* Stat cards */}
       <OverviewCards
         today={{
-          total_secs: stats.today_secs,
-          game_count: stats.today_games,
-          session_count: stats.today_sessions,
+          total_secs: rpc.today.total_secs,
+          game_count: rpc.today.game_count,
         }}
         week={{
-          total_secs: stats.week_secs,
-          game_count: stats.week_games,
-          session_count: stats.week_sessions,
+          total_secs: rpc.this_week.total_secs,
+          game_count: rpc.this_week.game_count,
         }}
         month={{
-          total_secs: stats.month_secs,
-          game_count: stats.month_games,
-          session_count: stats.month_sessions,
+          total_secs: rpc.this_month.total_secs,
+          game_count: rpc.this_month.game_count,
         }}
       />
 
       {/* Charts and recent sessions */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <WeeklyChart data={stats.daily_breakdown} />
+        <WeeklyChart data={dailyBreakdown} />
         <RecentSessions sessions={(recentSessions as any) ?? []} />
       </div>
     </div>
