@@ -57,9 +57,5 @@
       "timestampUrl": ""
     }
   },
-  "plugins": {
-    "autostart": {
-      "macOSExtraArgs": ["--flag1", "--flag2"]
-    }
-  }
+  "plugins": {}
 }
