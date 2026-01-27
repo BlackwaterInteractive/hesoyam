@@ -32,7 +32,7 @@ impl ActiveSession {
 }
 
 pub struct SessionManager {
-    active_sessions: HashMap<String, ActiveSession>, // game_id -> session
+    pub(crate) active_sessions: HashMap<String, ActiveSession>, // game_id -> session
     local_db: Arc<LocalDb>,
     paused: bool,
     today_completed_secs: i64,
@@ -70,10 +70,18 @@ impl SessionManager {
         self.paused
     }
 
+    /// Set the cloud session ID for an active session.
+    pub fn set_session_id(&mut self, game_id: &str, session_id: String) {
+        if let Some(session) = self.active_sessions.get_mut(game_id) {
+            session.session_id = Some(session_id);
+        }
+    }
+
     /// Main tick: scan processes, update sessions, detect idle.
-    pub fn tick(&mut self) -> Vec<CompletedSession> {
+    /// Returns (completed_sessions, newly_started_game_ids).
+    pub fn tick(&mut self) -> TickResult {
         if self.paused {
-            return vec![];
+            return TickResult::default();
         }
 
         let running = process_scanner::scan_running_processes();
@@ -82,10 +90,12 @@ impl SessionManager {
         let now = Utc::now();
 
         let mut completed = Vec::new();
+        let mut started = Vec::new();
 
         // Start new sessions for newly detected games
         for game in &matched {
             if !self.active_sessions.contains_key(&game.game_id) {
+                started.push(game.game_id.clone());
                 log::info!("Game detected: {} ({})", game.game_name, game.process_name);
                 self.active_sessions.insert(
                     game.game_id.clone(),
@@ -158,8 +168,14 @@ impl SessionManager {
             session.last_update = now;
         }
 
-        completed
+        TickResult { completed, started }
     }
+}
+
+#[derive(Debug, Default)]
+pub struct TickResult {
+    pub completed: Vec<CompletedSession>,
+    pub started: Vec<String>, // game_ids of newly started sessions
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,16 +204,58 @@ pub async fn tracking_loop(
         tick_interval.tick().await;
 
         // Run session tick
-        let completed = {
+        let result = {
             let mut manager = session_manager.lock().await;
             manager.tick()
         };
 
+        // Start cloud sessions for newly detected games
+        if !result.started.is_empty() {
+            let sync = cloud_sync.lock().await;
+            let mut manager = session_manager.lock().await;
+            for game_id in &result.started {
+                // Skip custom games — they don't sync to cloud
+                if game_id.starts_with("custom::") {
+                    continue;
+                }
+                if let Some(session) = manager.active_sessions.get(game_id) {
+                    let started_at = session.started_at.to_rfc3339();
+                    match sync.start_session(game_id, &started_at).await {
+                        Ok(cloud_id) => {
+                            log::info!("Cloud session started for {}: {}", game_id, cloud_id);
+                            manager.set_session_id(game_id, cloud_id);
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to start cloud session for {}: {}", game_id, e);
+                        }
+                    }
+                }
+            }
+        }
+
         // Handle completed sessions
-        for session in &completed {
-            // Store in local DB for offline queue
-            if let Err(e) = local_db.queue_completed_session(session) {
-                log::error!("Failed to queue session: {}", e);
+        for session in &result.completed {
+            if let Some(ref cloud_id) = session.session_id {
+                // Session was live-synced — end it in cloud
+                let sync = cloud_sync.lock().await;
+                if let Err(e) = sync.end_session(
+                    cloud_id,
+                    &session.ended_at.to_rfc3339(),
+                    session.duration_secs,
+                    session.active_secs,
+                    session.idle_secs,
+                ).await {
+                    log::warn!("Failed to end cloud session: {}", e);
+                    // Cloud end failed — queue for offline retry
+                    if let Err(e) = local_db.queue_completed_session(session) {
+                        log::error!("Failed to queue session: {}", e);
+                    }
+                }
+            } else {
+                // No cloud session — queue for offline batch upload
+                if let Err(e) = local_db.queue_completed_session(session) {
+                    log::error!("Failed to queue session: {}", e);
+                }
             }
         }
 
