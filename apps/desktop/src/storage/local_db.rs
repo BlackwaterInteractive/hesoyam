@@ -201,6 +201,46 @@ impl LocalDb {
         Ok(())
     }
 
+    // --- Custom Mappings ---
+
+    pub fn add_custom_mapping(&self, process_name: &str, game_name: &str) -> Result<()> {
+        let game_id = format!("custom::{}", process_name);
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO custom_mappings (process_name, game_id, game_name) VALUES (?1, ?2, ?3)",
+            params![process_name, game_id, game_name],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_custom_mapping(&self, process_name: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM custom_mappings WHERE process_name = ?1",
+            params![process_name],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_all_custom_mappings(&self) -> Result<Vec<CustomMapping>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT process_name, game_id, game_name FROM custom_mappings",
+        )?;
+
+        let mappings = stmt
+            .query_map([], |row| {
+                Ok(CustomMapping {
+                    process_name: row.get(0)?,
+                    game_id: row.get(1)?,
+                    game_name: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(mappings)
+    }
+
     // --- Settings ---
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
@@ -226,6 +266,13 @@ impl LocalDb {
         )?;
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct CustomMapping {
+    pub process_name: String,
+    pub game_id: String,
+    pub game_name: String,
 }
 
 #[derive(Debug, Clone)]

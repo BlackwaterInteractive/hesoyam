@@ -1,106 +1,77 @@
 use anyhow::Result;
-use tiny_http::{Response, Server};
-use url::Url;
 
-const CALLBACK_PORT: u16 = 19284;
 const WEB_APP_URL: &str = "https://hesoyam.gg";
+const SUPABASE_URL: &str = "https://oubdkgdzssmckayxfrjs.supabase.co";
+const SUPABASE_ANON_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im91YmRrZ2R6c3NtY2theXhmcmpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0MDM5MjcsImV4cCI6MjA4NDk3OTkyN30.wphj9diIsIdy_vJmX9_DzOxtA8CeaXRbvFe-sRKSCF0";
 
-/// Auth tokens received from the browser callback.
+/// Auth tokens received from Supabase.
 #[derive(Debug, Clone)]
 pub struct AuthTokens {
     pub access_token: String,
     pub refresh_token: String,
 }
 
-/// Starts the browser-based auth flow:
-/// 1. Starts a temporary localhost HTTP server
-/// 2. Opens the browser to the web app's agent-auth page
-/// 3. Waits for the callback with tokens
-/// 4. Stores tokens in OS keyring
-pub async fn start_auth_flow() -> Result<String> {
-    let callback_url = format!("http://localhost:{}/callback", CALLBACK_PORT);
-    let auth_url = format!(
-        "{}/agent-auth?redirect={}",
-        WEB_APP_URL,
-        urlencoding::encode(&callback_url)
-    );
+/// Sign in with email and password via Supabase REST API.
+pub async fn sign_in_with_password(email: &str, password: &str) -> Result<AuthTokens> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!(
+            "{}/auth/v1/token?grant_type=password",
+            SUPABASE_URL
+        ))
+        .header("apikey", SUPABASE_ANON_KEY)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "email": email,
+            "password": password,
+        }))
+        .send()
+        .await?;
 
-    // Start temporary HTTP server
-    let server = Server::http(format!("127.0.0.1:{}", CALLBACK_PORT))
-        .map_err(|e| anyhow::anyhow!("Failed to start callback server: {}", e))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+        let msg = body
+            .get("error_description")
+            .or_else(|| body.get("msg"))
+            .or_else(|| body.get("message"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("Sign in failed");
 
-    // Open browser
-    log::info!("Opening browser for auth: {}", auth_url);
-    open::that(&auth_url)?;
+        return Err(anyhow::anyhow!("{}", match status.as_u16() {
+            400 => format!("Invalid email or password: {}", msg),
+            422 => format!("Invalid input: {}", msg),
+            429 => "Too many attempts. Please try again later.".to_string(),
+            _ => format!("Sign in failed ({}): {}", status, msg),
+        }));
+    }
 
-    // Wait for callback (with 5 minute timeout)
-    let tokens = tokio::task::spawn_blocking(move || -> Result<AuthTokens> {
-        // Set a timeout by accepting with a deadline
-        for request in server.incoming_requests() {
-            let url_str = format!("http://localhost{}", request.url());
-            if let Ok(url) = Url::parse(&url_str) {
-                if url.path() == "/callback" {
-                    let params: std::collections::HashMap<_, _> =
-                        url.query_pairs().into_owned().collect();
+    let data: serde_json::Value = resp.json().await?;
+    let access_token = data
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("No access token in response"))?
+        .to_string();
+    let refresh_token = data
+        .get("refresh_token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("No refresh token in response"))?
+        .to_string();
 
-                    let access_token = params
-                        .get("access_token")
-                        .cloned()
-                        .unwrap_or_default();
-                    let refresh_token = params
-                        .get("refresh_token")
-                        .cloned()
-                        .unwrap_or_default();
+    store_tokens(&access_token, &refresh_token);
 
-                    if !access_token.is_empty() {
-                        // Send success response
-                        let html = r#"<!DOCTYPE html>
-<html>
-<head><title>Hesoyam</title></head>
-<body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
-<div style="text-align:center">
-<h1 style="color:#10b981">Connected!</h1>
-<p style="color:#a1a1aa">You can close this window and return to Hesoyam.</p>
-</div>
-</body>
-</html>"#;
-                        let response = Response::from_string(html)
-                            .with_header(
-                                tiny_http::Header::from_bytes(
-                                    &b"Content-Type"[..],
-                                    &b"text/html"[..],
-                                )
-                                .unwrap(),
-                            );
-                        let _ = request.respond(response);
-
-                        // Store in keyring
-                        store_tokens(&access_token, &refresh_token);
-
-                        return Ok(AuthTokens {
-                            access_token,
-                            refresh_token,
-                        });
-                    }
-                }
-            }
-
-            // Send redirect for non-callback requests
-            let _ = request.respond(
-                Response::from_string("Redirecting...")
-                    .with_status_code(302)
-                    .with_header(
-                        tiny_http::Header::from_bytes(&b"Location"[..], auth_url.as_bytes())
-                            .unwrap(),
-                    ),
-            );
-        }
-
-        Err(anyhow::anyhow!("Auth server closed without receiving tokens"))
+    Ok(AuthTokens {
+        access_token,
+        refresh_token,
     })
-    .await??;
+}
 
-    Ok(tokens.access_token)
+/// Open the signup page in the default browser.
+pub fn open_signup() {
+    let url = format!("{}/signup", WEB_APP_URL);
+    if let Err(e) = open::that(&url) {
+        log::error!("Failed to open signup URL: {}", e);
+    }
 }
 
 /// Store auth tokens in the OS keyring.
@@ -138,22 +109,5 @@ pub fn clear_keyring_tokens() {
     }
     if let Ok(entry) = keyring::Entry::new("hesoyam", "refresh_token") {
         let _ = entry.delete_credential();
-    }
-}
-
-mod urlencoding {
-    pub fn encode(input: &str) -> String {
-        let mut result = String::new();
-        for byte in input.bytes() {
-            match byte {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    result.push(byte as char);
-                }
-                _ => {
-                    result.push_str(&format!("%{:02X}", byte));
-                }
-            }
-        }
-        result
     }
 }

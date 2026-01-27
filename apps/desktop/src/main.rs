@@ -64,14 +64,18 @@ async fn get_tracking_status(state: tauri::State<'_, AppState>) -> Result<serde_
     let sessions = manager.get_active_sessions();
     let today_secs = manager.get_today_total_secs();
 
+    let is_paused = manager.is_paused();
+
     Ok(serde_json::json!({
         "active_sessions": sessions.iter().map(|s| serde_json::json!({
             "game_name": s.game_name,
             "started_at": s.started_at.to_rfc3339(),
             "duration_secs": s.duration_secs(),
+            "is_custom": s.is_custom,
         })).collect::<Vec<_>>(),
         "today_total_secs": today_secs,
         "is_tracking": !sessions.is_empty(),
+        "is_paused": is_paused,
     }))
 }
 
@@ -95,10 +99,11 @@ async fn get_auth_status(state: tauri::State<'_, AppState>) -> Result<bool, Stri
 }
 
 #[tauri::command]
-async fn start_auth_flow() -> Result<String, String> {
-    auth::browser_auth::start_auth_flow()
+async fn sign_in(email: String, password: String) -> Result<String, String> {
+    let tokens = auth::browser_auth::sign_in_with_password(&email, &password)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(tokens.access_token)
 }
 
 #[tauri::command]
@@ -106,6 +111,62 @@ async fn sign_out(state: tauri::State<'_, AppState>) -> Result<(), String> {
     state.local_db.clear_auth_tokens().map_err(|e| e.to_string())?;
     auth::browser_auth::clear_keyring_tokens();
     Ok(())
+}
+
+#[tauri::command]
+async fn get_running_processes(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let user_procs = tracker::process_scanner::get_user_processes();
+
+    // Get known signatures and custom mappings to annotate processes
+    let signatures = state.local_db.get_all_signatures().unwrap_or_default();
+    let custom_mappings = state.local_db.get_all_custom_mappings().unwrap_or_default();
+
+    let sig_names: std::collections::HashSet<String> = signatures
+        .iter()
+        .map(|s| s.process_name.to_lowercase())
+        .collect();
+    let custom_names: std::collections::HashSet<String> = custom_mappings
+        .iter()
+        .map(|m| m.process_name.to_lowercase())
+        .collect();
+
+    let processes: Vec<serde_json::Value> = user_procs
+        .iter()
+        .map(|p| {
+            let name_lower = p.name.to_lowercase();
+            serde_json::json!({
+                "name": p.name,
+                "exe_path": p.exe_path,
+                "is_known_game": sig_names.contains(&name_lower),
+                "is_tracked": custom_names.contains(&name_lower),
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({ "processes": processes }))
+}
+
+#[tauri::command]
+async fn add_custom_tracking(
+    process_name: String,
+    game_name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .local_db
+        .add_custom_mapping(&process_name, &game_name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn remove_custom_tracking(
+    process_name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .local_db
+        .remove_custom_mapping(&process_name)
+        .map_err(|e| e.to_string())
 }
 
 fn main() {
@@ -223,8 +284,11 @@ fn main() {
             pause_tracking,
             resume_tracking,
             get_auth_status,
-            start_auth_flow,
+            sign_in,
             sign_out,
+            get_running_processes,
+            add_custom_tracking,
+            remove_custom_tracking,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

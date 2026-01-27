@@ -220,19 +220,36 @@ impl CloudSync {
             None => return Ok(()), // Not authenticated, skip
         };
 
-        let sessions: Vec<SessionInsert> = pending
-            .iter()
-            .map(|s| SessionInsert {
-                game_id: s.game_id.clone(),
-                started_at: s.started_at.clone(),
-                ended_at: Some(s.ended_at.clone()),
-                duration_secs: s.duration_secs,
-                active_secs: s.active_secs,
-                idle_secs: s.idle_secs,
-            })
-            .collect();
+        // Separate custom sessions (local-only) from cloud-uploadable sessions
+        let mut custom_ids = Vec::new();
+        let mut cloud_sessions = Vec::new();
 
-        let batch = BatchUpload { sessions };
+        for s in &pending {
+            if s.game_id.starts_with("custom::") {
+                custom_ids.push(s.id);
+            } else {
+                cloud_sessions.push(SessionInsert {
+                    game_id: s.game_id.clone(),
+                    started_at: s.started_at.clone(),
+                    ended_at: Some(s.ended_at.clone()),
+                    duration_secs: s.duration_secs,
+                    active_secs: s.active_secs,
+                    idle_secs: s.idle_secs,
+                });
+            }
+        }
+
+        // Remove custom sessions from queue without uploading
+        if !custom_ids.is_empty() {
+            self.local_db.remove_queued_sessions(&custom_ids)?;
+            log::info!("Removed {} custom sessions from offline queue (local only)", custom_ids.len());
+        }
+
+        if cloud_sessions.is_empty() {
+            return Ok(());
+        }
+
+        let batch = BatchUpload { sessions: cloud_sessions };
 
         let resp = self
             .client
@@ -248,7 +265,7 @@ impl CloudSync {
             .await?;
 
         if resp.status().is_success() {
-            let ids: Vec<i64> = pending.iter().map(|s| s.id).collect();
+            let ids: Vec<i64> = pending.iter().filter(|s| !s.game_id.starts_with("custom::")).map(|s| s.id).collect();
             self.local_db.remove_queued_sessions(&ids)?;
             log::info!("Uploaded {} sessions from offline queue", ids.len());
         } else {

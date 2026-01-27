@@ -21,6 +21,7 @@ pub struct ActiveSession {
     pub active_secs: i64,
     pub idle_secs: i64,
     pub is_idle: bool,
+    pub is_custom: bool,
 }
 
 impl ActiveSession {
@@ -100,6 +101,7 @@ impl SessionManager {
                         active_secs: 0,
                         idle_secs: 0,
                         is_idle: false,
+                        is_custom: game.is_custom,
                     },
                 );
             }
@@ -135,6 +137,7 @@ impl SessionManager {
                     duration_secs: duration,
                     active_secs: session.active_secs,
                     idle_secs: session.idle_secs,
+                    is_custom: session.is_custom,
                 });
             }
         }
@@ -169,6 +172,7 @@ pub struct CompletedSession {
     pub duration_secs: i64,
     pub active_secs: i64,
     pub idle_secs: i64,
+    pub is_custom: bool,
 }
 
 /// Background tracking loop. Runs every 30 seconds.
