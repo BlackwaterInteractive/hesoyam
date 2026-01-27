@@ -16,6 +16,7 @@ pub struct CloudSync {
 
 #[derive(Serialize)]
 struct SessionInsert {
+    user_id: String,
     game_id: String,
     started_at: String,
     ended_at: Option<String>,
@@ -68,6 +69,10 @@ impl CloudSync {
         browser_auth::get_access_token().map(|t| format!("Bearer {}", t))
     }
 
+    fn get_user_id(&self) -> Option<String> {
+        browser_auth::get_user_id()
+    }
+
     /// Start a new session in the cloud. Returns the session ID.
     pub async fn start_session(
         &self,
@@ -78,7 +83,12 @@ impl CloudSync {
             .get_auth_header()
             .ok_or_else(|| anyhow::anyhow!("Not authenticated"))?;
 
+        let user_id = self
+            .get_user_id()
+            .ok_or_else(|| anyhow::anyhow!("No user ID available"))?;
+
         let body = SessionInsert {
+            user_id,
             game_id: game_id.to_string(),
             started_at: started_at.to_string(),
             ended_at: None,
@@ -220,6 +230,11 @@ impl CloudSync {
             None => return Ok(()), // Not authenticated, skip
         };
 
+        let user_id = match self.get_user_id() {
+            Some(id) => id,
+            None => return Ok(()), // No user ID, skip
+        };
+
         // Separate custom sessions (local-only) from cloud-uploadable sessions
         let mut custom_ids = Vec::new();
         let mut cloud_sessions = Vec::new();
@@ -229,6 +244,7 @@ impl CloudSync {
                 custom_ids.push(s.id);
             } else {
                 cloud_sessions.push(SessionInsert {
+                    user_id: user_id.clone(),
                     game_id: s.game_id.clone(),
                     started_at: s.started_at.clone(),
                     ended_at: Some(s.ended_at.clone()),

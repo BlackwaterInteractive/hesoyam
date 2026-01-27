@@ -57,8 +57,14 @@ pub async fn sign_in_with_password(email: &str, password: &str) -> Result<AuthTo
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("No refresh token in response"))?
         .to_string();
+    let user_id = data
+        .get("user")
+        .and_then(|u| u.get("id"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("No user ID in response"))?
+        .to_string();
 
-    store_tokens(&access_token, &refresh_token);
+    store_tokens(&access_token, &refresh_token, &user_id);
 
     Ok(AuthTokens {
         access_token,
@@ -75,7 +81,7 @@ pub fn open_signup() {
 }
 
 /// Store auth tokens in the OS keyring.
-fn store_tokens(access_token: &str, refresh_token: &str) {
+fn store_tokens(access_token: &str, refresh_token: &str, user_id: &str) {
     if let Ok(entry) = keyring::Entry::new("hesoyam", "access_token") {
         if let Err(e) = entry.set_password(access_token) {
             log::error!("Failed to store access token in keyring: {}", e);
@@ -84,6 +90,11 @@ fn store_tokens(access_token: &str, refresh_token: &str) {
     if let Ok(entry) = keyring::Entry::new("hesoyam", "refresh_token") {
         if let Err(e) = entry.set_password(refresh_token) {
             log::error!("Failed to store refresh token in keyring: {}", e);
+        }
+    }
+    if let Ok(entry) = keyring::Entry::new("hesoyam", "user_id") {
+        if let Err(e) = entry.set_password(user_id) {
+            log::error!("Failed to store user ID in keyring: {}", e);
         }
     }
 }
@@ -102,12 +113,22 @@ pub fn get_refresh_token() -> Option<String> {
         .and_then(|entry| entry.get_password().ok())
 }
 
+/// Retrieve user ID from the OS keyring.
+pub fn get_user_id() -> Option<String> {
+    keyring::Entry::new("hesoyam", "user_id")
+        .ok()
+        .and_then(|entry| entry.get_password().ok())
+}
+
 /// Clear all stored tokens from keyring.
 pub fn clear_keyring_tokens() {
     if let Ok(entry) = keyring::Entry::new("hesoyam", "access_token") {
         let _ = entry.delete_credential();
     }
     if let Ok(entry) = keyring::Entry::new("hesoyam", "refresh_token") {
+        let _ = entry.delete_credential();
+    }
+    if let Ok(entry) = keyring::Entry::new("hesoyam", "user_id") {
         let _ = entry.delete_credential();
     }
 }
