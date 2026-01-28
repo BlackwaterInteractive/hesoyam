@@ -9,6 +9,24 @@ use std::sync::Arc;
 const SUPABASE_URL: &str = "https://oubdkgdzssmckayxfrjs.supabase.co";
 const SUPABASE_ANON_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im91YmRrZ2R6c3NtY2theXhmcmpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0MDM5MjcsImV4cCI6MjA4NDk3OTkyN30.wphj9diIsIdy_vJmX9_DzOxtA8CeaXRbvFe-sRKSCF0";
 
+#[derive(Debug, Clone, Serialize)]
+pub struct PresencePayload {
+    pub user_id: String,
+    pub game_id: String,
+    pub game_name: String,
+    pub game_slug: String,
+    pub cover_url: Option<String>,
+    pub started_at: String,
+    pub event: String, // "start" | "heartbeat" | "end"
+}
+
+#[derive(Serialize)]
+struct BroadcastMessage {
+    topic: String,
+    event: String,
+    payload: PresencePayload,
+}
+
 pub struct CloudSync {
     client: Client,
     local_db: Arc<LocalDb>,
@@ -336,6 +354,39 @@ impl CloudSync {
         let count = signatures.len();
         self.local_db.replace_signatures(&signatures)?;
         log::info!("Synced {} game signatures from cloud", count);
+
+        Ok(())
+    }
+
+    /// Broadcast real-time presence to Supabase Broadcast channel.
+    /// Used for instant "currently playing" updates without database writes.
+    pub async fn broadcast_presence(&self, payload: PresencePayload) -> Result<()> {
+        let auth = match self.get_auth_header() {
+            Some(a) => a,
+            None => return Ok(()), // Not authenticated, skip silently
+        };
+
+        let message = BroadcastMessage {
+            topic: format!("presence:{}", payload.user_id),
+            event: "game_presence".to_string(),
+            payload,
+        };
+
+        let resp = self
+            .client
+            .post(format!("{}/realtime/v1/api/broadcast", SUPABASE_URL))
+            .header("Authorization", &auth)
+            .header("apikey", SUPABASE_ANON_KEY)
+            .header("Content-Type", "application/json")
+            .json(&message)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            log::warn!("Failed to broadcast presence: {} - {}", status, text);
+        }
 
         Ok(())
     }

@@ -7,6 +7,7 @@ pub struct MatchedGame {
     pub game_id: String,
     pub game_name: String,
     pub game_slug: String,
+    pub cover_url: Option<String>,
     pub process_name: String,
     pub is_custom: bool,
 }
@@ -43,6 +44,7 @@ pub fn match_games(
                 game_id: sig.game_id.clone(),
                 game_name: sig.game_name.clone(),
                 game_slug: sig.game_slug.clone(),
+                cover_url: sig.cover_url.clone(),
                 process_name: sig.process_name.clone(),
                 is_custom: false,
             });
@@ -74,6 +76,7 @@ pub fn match_games(
                 game_id: mapping.game_id.clone(),
                 game_name: mapping.game_name.clone(),
                 game_slug: String::new(),
+                cover_url: None,
                 process_name: mapping.process_name.clone(),
                 is_custom: true,
             });

@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useGamePresence } from '@/hooks/use-game-presence'
 import type { GameSession, Game } from '@/lib/types'
 
 interface LiveSessionData {
@@ -35,10 +36,44 @@ export function LiveSessionCard({
   initialSession,
   userId,
 }: LiveSessionCardProps) {
-  const [liveSession, setLiveSession] = useState<LiveSessionData | null>(
+  const [dbSession, setDbSession] = useState<LiveSessionData | null>(
     initialSession
   )
   const [elapsed, setElapsed] = useState('')
+
+  // Subscribe to real-time presence broadcasts (instant updates)
+  const presence = useGamePresence(userId)
+
+  // Build session data from presence if available, otherwise fall back to DB
+  const liveSession = useMemo<LiveSessionData | null>(() => {
+    if (presence) {
+      return {
+        session: {
+          id: `presence-${presence.game_id}`,
+          user_id: presence.user_id,
+          game_id: presence.game_id,
+          started_at: presence.started_at,
+          ended_at: null,
+          duration_secs: 0,
+          active_secs: 0,
+          idle_secs: 0,
+          created_at: presence.started_at,
+        },
+        game: {
+          id: presence.game_id,
+          igdb_id: null,
+          name: presence.game_name,
+          slug: presence.game_slug,
+          cover_url: presence.cover_url,
+          genres: [],
+          developer: null,
+          release_year: null,
+          created_at: presence.started_at,
+        },
+      }
+    }
+    return dbSession
+  }, [presence, dbSession])
 
   // Update elapsed timer
   useEffect(() => {
@@ -53,8 +88,8 @@ export function LiveSessionCard({
     return () => clearInterval(interval)
   }, [liveSession])
 
-  // Subscribe to realtime changes on game_sessions
-  const fetchLiveSession = useCallback(async () => {
+  // Subscribe to realtime changes on game_sessions (fallback for DB-based updates)
+  const fetchDbSession = useCallback(async () => {
     const supabase = createClient()
     const { data: sessions } = await supabase
       .from('game_sessions')
@@ -73,10 +108,10 @@ export function LiveSessionCard({
         .single()
 
       if (game) {
-        setLiveSession({ session, game })
+        setDbSession({ session, game })
       }
     } else {
-      setLiveSession(null)
+      setDbSession(null)
     }
   }, [userId])
 
@@ -84,7 +119,7 @@ export function LiveSessionCard({
     const supabase = createClient()
 
     const channel = supabase
-      .channel('live-session')
+      .channel('live-session-db')
       .on(
         'postgres_changes',
         {
@@ -94,7 +129,7 @@ export function LiveSessionCard({
           filter: `user_id=eq.${userId}`,
         },
         () => {
-          fetchLiveSession()
+          fetchDbSession()
         }
       )
       .subscribe()
@@ -102,7 +137,7 @@ export function LiveSessionCard({
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [userId, fetchLiveSession])
+  }, [userId, fetchDbSession])
 
   if (!liveSession) return null
 

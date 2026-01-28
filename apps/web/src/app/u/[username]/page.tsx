@@ -178,7 +178,7 @@ export default async function PublicProfilePage({ params }: PageProps) {
     <div className="min-h-screen bg-zinc-950">
       <div className="mx-auto max-w-2xl px-4 py-12">
         {/* Profile Header */}
-        <ProfileHeader profile={profile} currentlyPlaying={currentlyPlaying} />
+        <ProfileHeader profile={profile} initialCurrentlyPlaying={currentlyPlaying} />
 
         {/* Stats Row */}
         <div className="mt-8 grid grid-cols-3 gap-4">

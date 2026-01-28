@@ -1,4 +1,7 @@
+'use client'
+
 import { cn } from '@/lib/utils'
+import { useGamePresence } from '@/hooks/use-game-presence'
 import type { Profile } from '@/lib/types'
 
 function getInitials(profile: Profile): string {
@@ -12,12 +15,18 @@ function getInitials(profile: Profile): string {
 
 interface ProfileHeaderProps {
   profile: Profile
-  currentlyPlaying?: string | null
+  initialCurrentlyPlaying?: string | null
   className?: string
 }
 
-export function ProfileHeader({ profile, currentlyPlaying, className }: ProfileHeaderProps) {
+export function ProfileHeader({ profile, initialCurrentlyPlaying, className }: ProfileHeaderProps) {
   const initials = getInitials(profile)
+
+  // Subscribe to real-time presence broadcasts
+  const presence = useGamePresence(profile.id)
+
+  // Prefer broadcast presence over initial server-rendered value
+  const currentlyPlaying = presence?.game_name ?? initialCurrentlyPlaying
 
   return (
     <div className={cn('flex items-start gap-5', className)}>
