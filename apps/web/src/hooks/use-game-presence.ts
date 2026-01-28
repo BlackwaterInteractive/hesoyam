@@ -42,7 +42,13 @@ export function useGamePresence(userId: string): GamePresence | null {
           })
         }
       })
-      .subscribe()
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log(`[Presence] Subscribed to presence:${userId}`)
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error(`[Presence] Failed to subscribe to presence:${userId}`)
+        }
+      })
 
     // Staleness check - clear if no heartbeat for 15 seconds
     const staleCheck = setInterval(() => {

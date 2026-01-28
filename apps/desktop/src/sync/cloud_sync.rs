@@ -27,6 +27,11 @@ struct BroadcastMessage {
     payload: PresencePayload,
 }
 
+#[derive(Serialize)]
+struct BroadcastRequest {
+    messages: Vec<BroadcastMessage>,
+}
+
 pub struct CloudSync {
     client: Client,
     local_db: Arc<LocalDb>,
@@ -366,10 +371,12 @@ impl CloudSync {
             None => return Ok(()), // Not authenticated, skip silently
         };
 
-        let message = BroadcastMessage {
-            topic: format!("presence:{}", payload.user_id),
-            event: "game_presence".to_string(),
-            payload,
+        let request = BroadcastRequest {
+            messages: vec![BroadcastMessage {
+                topic: format!("presence:{}", payload.user_id),
+                event: "game_presence".to_string(),
+                payload,
+            }],
         };
 
         let resp = self
@@ -378,7 +385,7 @@ impl CloudSync {
             .header("Authorization", &auth)
             .header("apikey", SUPABASE_ANON_KEY)
             .header("Content-Type", "application/json")
-            .json(&message)
+            .json(&request)
             .send()
             .await?;
 
