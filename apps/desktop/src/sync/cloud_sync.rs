@@ -373,7 +373,7 @@ impl CloudSync {
 
         let request = BroadcastRequest {
             messages: vec![BroadcastMessage {
-                topic: format!("presence:{}", payload.user_id),
+                topic: format!("realtime:presence:{}", payload.user_id),
                 event: "game_presence".to_string(),
                 payload,
             }],
