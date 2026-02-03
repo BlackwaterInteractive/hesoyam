@@ -58,6 +58,7 @@ export function LiveSessionCard({
           active_secs: 0,
           idle_secs: 0,
           created_at: presence.started_at,
+          updated_at: new Date().toISOString(),
         },
         game: {
           id: presence.game_id,

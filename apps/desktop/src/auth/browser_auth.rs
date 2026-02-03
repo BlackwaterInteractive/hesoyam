@@ -132,3 +132,63 @@ pub fn clear_keyring_tokens() {
         let _ = entry.delete_credential();
     }
 }
+
+/// Refresh the access token using the stored refresh token.
+/// Returns the new access token on success.
+pub async fn refresh_access_token() -> Result<String> {
+    let refresh_token = get_refresh_token()
+        .ok_or_else(|| anyhow::anyhow!("No refresh token available"))?;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!(
+            "{}/auth/v1/token?grant_type=refresh_token",
+            SUPABASE_URL
+        ))
+        .header("apikey", SUPABASE_ANON_KEY)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "refresh_token": refresh_token,
+        }))
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+        let msg = body
+            .get("error_description")
+            .or_else(|| body.get("msg"))
+            .or_else(|| body.get("message"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("Token refresh failed");
+
+        // If refresh fails with 401/403, tokens are invalid - clear them
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            log::warn!("Refresh token invalid, clearing stored tokens");
+            clear_keyring_tokens();
+        }
+
+        return Err(anyhow::anyhow!("Token refresh failed ({}): {}", status, msg));
+    }
+
+    let data: serde_json::Value = resp.json().await?;
+    let access_token = data
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("No access token in refresh response"))?
+        .to_string();
+    let new_refresh_token = data
+        .get("refresh_token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("No refresh token in refresh response"))?
+        .to_string();
+    let user_id = get_user_id()
+        .ok_or_else(|| anyhow::anyhow!("No user ID available"))?;
+
+    // Store the new tokens
+    store_tokens(&access_token, &new_refresh_token, &user_id);
+    log::info!("Access token refreshed successfully");
+
+    Ok(access_token)
+}

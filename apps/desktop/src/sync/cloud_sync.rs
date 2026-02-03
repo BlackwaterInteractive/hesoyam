@@ -96,13 +96,25 @@ impl CloudSync {
         browser_auth::get_user_id()
     }
 
+    /// Refresh the access token and return the new auth header.
+    async fn refresh_and_get_auth(&self) -> Option<String> {
+        match browser_auth::refresh_access_token().await {
+            Ok(token) => Some(format!("Bearer {}", token)),
+            Err(e) => {
+                log::warn!("Failed to refresh token: {}", e);
+                None
+            }
+        }
+    }
+
     /// Start a new session in the cloud. Returns the session ID.
+    /// Automatically refreshes token on 401 and retries once.
     pub async fn start_session(
         &self,
         game_id: &str,
         started_at: &str,
     ) -> Result<String> {
-        let auth = self
+        let mut auth = self
             .get_auth_header()
             .ok_or_else(|| anyhow::anyhow!("Not authenticated"))?;
 
@@ -131,6 +143,27 @@ impl CloudSync {
             .send()
             .await?;
 
+        // Handle 401 - refresh token and retry
+        let resp = if resp.status().as_u16() == 401 {
+            log::info!("start_session got 401, attempting token refresh...");
+            auth = self
+                .refresh_and_get_auth()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("Token refresh failed"))?;
+
+            self.client
+                .post(format!("{}/rest/v1/game_sessions", SUPABASE_URL))
+                .header("Authorization", &auth)
+                .header("apikey", SUPABASE_ANON_KEY)
+                .header("Content-Type", "application/json")
+                .header("Prefer", "return=representation")
+                .json(&[&body])
+                .send()
+                .await?
+        } else {
+            resp
+        };
+
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
@@ -153,12 +186,13 @@ impl CloudSync {
     }
 
     /// Update an active session in the cloud.
+    /// Automatically refreshes token on 401 and retries once.
     pub async fn update_session(
         &self,
         session_id: &str,
         session: &ActiveSession,
     ) -> Result<()> {
-        let auth = self
+        let mut auth = self
             .get_auth_header()
             .ok_or_else(|| anyhow::anyhow!("Not authenticated"))?;
 
@@ -182,6 +216,29 @@ impl CloudSync {
             .send()
             .await?;
 
+        // Handle 401 - refresh token and retry
+        let resp = if resp.status().as_u16() == 401 {
+            log::info!("update_session got 401, attempting token refresh...");
+            auth = self
+                .refresh_and_get_auth()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("Token refresh failed"))?;
+
+            self.client
+                .patch(format!(
+                    "{}/rest/v1/game_sessions?id=eq.{}",
+                    SUPABASE_URL, session_id
+                ))
+                .header("Authorization", &auth)
+                .header("apikey", SUPABASE_ANON_KEY)
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await?
+        } else {
+            resp
+        };
+
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
@@ -196,6 +253,7 @@ impl CloudSync {
     }
 
     /// End a session in the cloud.
+    /// Automatically refreshes token on 401 and retries once.
     pub async fn end_session(
         &self,
         session_id: &str,
@@ -204,7 +262,7 @@ impl CloudSync {
         active_secs: i64,
         idle_secs: i64,
     ) -> Result<()> {
-        let auth = self
+        let mut auth = self
             .get_auth_header()
             .ok_or_else(|| anyhow::anyhow!("Not authenticated"))?;
 
@@ -228,6 +286,29 @@ impl CloudSync {
             .send()
             .await?;
 
+        // Handle 401 - refresh token and retry
+        let resp = if resp.status().as_u16() == 401 {
+            log::info!("end_session got 401, attempting token refresh...");
+            auth = self
+                .refresh_and_get_auth()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("Token refresh failed"))?;
+
+            self.client
+                .patch(format!(
+                    "{}/rest/v1/game_sessions?id=eq.{}",
+                    SUPABASE_URL, session_id
+                ))
+                .header("Authorization", &auth)
+                .header("apikey", SUPABASE_ANON_KEY)
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await?
+        } else {
+            resp
+        };
+
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
@@ -242,13 +323,14 @@ impl CloudSync {
     }
 
     /// Process the offline queue - upload pending sessions in batch.
+    /// Automatically refreshes token on 401 and retries once.
     pub async fn process_offline_queue(&self) -> Result<()> {
         let pending = self.local_db.get_pending_sessions()?;
         if pending.is_empty() {
             return Ok(());
         }
 
-        let auth = match self.get_auth_header() {
+        let mut auth = match self.get_auth_header() {
             Some(a) => a,
             None => return Ok(()), // Not authenticated, skip
         };
@@ -302,6 +384,29 @@ impl CloudSync {
             .json(&batch)
             .send()
             .await?;
+
+        // Handle 401 - refresh token and retry
+        let resp = if resp.status().as_u16() == 401 {
+            log::info!("process_offline_queue got 401, attempting token refresh...");
+            if let Some(new_auth) = self.refresh_and_get_auth().await {
+                auth = new_auth;
+                self.client
+                    .post(format!(
+                        "{}/functions/v1/session-batch",
+                        SUPABASE_URL
+                    ))
+                    .header("Authorization", &auth)
+                    .header("apikey", SUPABASE_ANON_KEY)
+                    .header("Content-Type", "application/json")
+                    .json(&batch)
+                    .send()
+                    .await?
+            } else {
+                return Ok(()); // Token refresh failed, skip for now
+            }
+        } else {
+            resp
+        };
 
         if resp.status().is_success() {
             let ids: Vec<i64> = pending.iter().filter(|s| !s.game_id.starts_with("custom::")).map(|s| s.id).collect();
@@ -365,8 +470,9 @@ impl CloudSync {
 
     /// Broadcast real-time presence to Supabase Broadcast channel.
     /// Used for instant "currently playing" updates without database writes.
+    /// Automatically refreshes token on 401 and retries once.
     pub async fn broadcast_presence(&self, payload: PresencePayload) -> Result<()> {
-        let auth = match self.get_auth_header() {
+        let mut auth = match self.get_auth_header() {
             Some(a) => a,
             None => return Ok(()), // Not authenticated, skip silently
         };
@@ -389,7 +495,29 @@ impl CloudSync {
             .send()
             .await?;
 
-        if !resp.status().is_success() {
+        // Handle 401 - try to refresh token and retry once
+        if resp.status().as_u16() == 401 {
+            log::info!("Broadcast got 401, attempting token refresh...");
+            if let Some(new_auth) = self.refresh_and_get_auth().await {
+                auth = new_auth;
+                let retry_resp = self
+                    .client
+                    .post(format!("{}/realtime/v1/api/broadcast", SUPABASE_URL))
+                    .header("Authorization", &auth)
+                    .header("apikey", SUPABASE_ANON_KEY)
+                    .header("Content-Type", "application/json")
+                    .json(&request)
+                    .send()
+                    .await?;
+
+                if !retry_resp.status().is_success() {
+                    let status = retry_resp.status();
+                    let text = retry_resp.text().await.unwrap_or_default();
+                    log::warn!("Failed to broadcast presence after refresh: {} - {}", status, text);
+                }
+                return Ok(());
+            }
+        } else if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             log::warn!("Failed to broadcast presence: {} - {}", status, text);

@@ -137,6 +137,7 @@ export type Database = {
           active_secs: number
           idle_secs: number
           created_at: string
+          updated_at: string
         }
         Insert: {
           id?: string
@@ -148,6 +149,7 @@ export type Database = {
           active_secs?: number
           idle_secs?: number
           created_at?: string
+          updated_at?: string
         }
         Update: {
           id?: string
@@ -159,6 +161,7 @@ export type Database = {
           active_secs?: number
           idle_secs?: number
           created_at?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -242,6 +245,10 @@ export type Database = {
       get_play_patterns: {
         Args: { p_user_id: string }
         Returns: Json
+      }
+      close_stale_sessions: {
+        Args: Record<string, never>
+        Returns: number
       }
     }
     Enums: {
