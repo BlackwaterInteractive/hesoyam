@@ -102,14 +102,37 @@ export function LiveSessionCard({
 
     if (sessions && sessions.length > 0) {
       const session = sessions[0]
-      const { data: game } = await supabase
-        .from('games')
-        .select('*')
-        .eq('id', session.game_id)
-        .single()
+
+      // Try to fetch game if game_id exists (agent sessions)
+      let game: Game | null = null
+      if (session.game_id) {
+        const { data } = await supabase
+          .from('games')
+          .select('*')
+          .eq('id', session.game_id)
+          .single()
+        game = data
+      }
+
+      // For Discord sessions without game_id, create a minimal game object
+      if (!game && session.game_name) {
+        game = {
+          id: `discord-${session.id}`,
+          igdb_id: null,
+          name: session.game_name,
+          slug: session.game_name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          cover_url: null,
+          genres: [],
+          developer: null,
+          release_year: null,
+          created_at: session.created_at,
+        }
+      }
 
       if (game) {
         setDbSession({ session, game })
+      } else {
+        setDbSession(null)
       }
     } else {
       setDbSession(null)

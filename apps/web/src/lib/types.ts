@@ -18,6 +18,9 @@ export type Database = {
           avatar_url: string | null
           bio: string | null
           privacy: 'public' | 'friends_only' | 'private'
+          discord_id: string | null
+          discord_connected_at: string | null
+          agent_last_seen: string | null
           created_at: string
           updated_at: string
         }
@@ -29,6 +32,9 @@ export type Database = {
           avatar_url?: string | null
           bio?: string | null
           privacy?: 'public' | 'friends_only' | 'private'
+          discord_id?: string | null
+          discord_connected_at?: string | null
+          agent_last_seen?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -40,6 +46,9 @@ export type Database = {
           avatar_url?: string | null
           bio?: string | null
           privacy?: 'public' | 'friends_only' | 'private'
+          discord_id?: string | null
+          discord_connected_at?: string | null
+          agent_last_seen?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -130,36 +139,42 @@ export type Database = {
         Row: {
           id: string
           user_id: string
-          game_id: string
+          game_id: string | null
+          game_name: string | null
           started_at: string
           ended_at: string | null
           duration_secs: number
           active_secs: number
           idle_secs: number
+          source: 'agent' | 'discord'
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
           user_id: string
-          game_id: string
+          game_id?: string | null
+          game_name?: string | null
           started_at: string
           ended_at?: string | null
           duration_secs?: number
           active_secs?: number
           idle_secs?: number
+          source?: 'agent' | 'discord'
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
           user_id?: string
-          game_id?: string
+          game_id?: string | null
+          game_name?: string | null
           started_at?: string
           ended_at?: string | null
           duration_secs?: number
           active_secs?: number
           idle_secs?: number
+          source?: 'agent' | 'discord'
           created_at?: string
           updated_at?: string
         }

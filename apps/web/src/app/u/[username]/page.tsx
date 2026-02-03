@@ -66,11 +66,19 @@ async function getCurrentlyPlaying(userId: string): Promise<string | null> {
     .limit(1)
     .single()
 
-  if (error || !data || !(data as any).games) {
+  if (error || !data) {
     return null
   }
 
-  return (data as any).games.name
+  // Handle Discord sessions (game_name but no game_id/games join)
+  const session = data as any
+  if (session.games?.name) {
+    return session.games.name
+  }
+  if (session.game_name) {
+    return session.game_name
+  }
+  return null
 }
 
 async function getTotalStats(userId: string) {

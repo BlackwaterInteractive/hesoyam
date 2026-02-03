@@ -85,7 +85,7 @@ export function RecentSessions({ sessions }: RecentSessionsProps) {
             {/* Game info */}
             <div className="flex-1 min-w-0">
               <p className="truncate text-sm font-medium text-white">
-                {session.games?.name || 'Unknown Game'}
+                {session.games?.name || session.game_name || 'Unknown Game'}
               </p>
               <p className="text-xs text-zinc-500">
                 {formatDate(session.started_at)}
