@@ -1,5 +1,6 @@
 import { getSupabase } from './client.js';
 import { logger } from '../utils/logger.js';
+import { resolveGame } from '../services/game-resolver.js';
 import type { GameSessionRow, GameActivity } from '../types/index.js';
 import { slugify } from '../types/index.js';
 
@@ -40,10 +41,28 @@ export async function createSession(
 
   const startedAt = game.startedAt ?? new Date();
 
+  // Resolve game name to a game record in our DB (fuzzy match → IGDB → minimal)
+  let gameId: string | null = null;
+  try {
+    const resolved = await resolveGame(game.name);
+    gameId = resolved.id;
+    logger.info('Game resolved for session', {
+      gameName: game.name,
+      resolvedName: resolved.name,
+      gameId: resolved.id,
+    });
+  } catch (error) {
+    logger.error('Game resolution failed, creating session without game_id', error, {
+      userId,
+      gameName: game.name,
+    });
+  }
+
   const { data, error } = await supabase
     .from('game_sessions')
     .insert({
       user_id: userId,
+      game_id: gameId,
       game_name: game.name,
       started_at: startedAt.toISOString(),
       source: 'discord',
@@ -56,7 +75,7 @@ export async function createSession(
     return null;
   }
 
-  logger.info('Session created', { userId, gameName: game.name, sessionId: data.id });
+  logger.info('Session created', { userId, gameName: game.name, gameId, sessionId: data.id });
   return data as GameSessionRow;
 }
 

@@ -1,5 +1,5 @@
 use crate::auth::browser_auth;
-use crate::storage::local_db::{LocalDb, LocalSignature};
+use crate::storage::local_db::{CachedGame, LocalDb};
 use crate::tracker::session_manager::ActiveSession;
 use anyhow::Result;
 use reqwest::Client;
@@ -41,11 +41,13 @@ pub struct CloudSync {
 struct SessionInsert {
     user_id: String,
     game_id: String,
+    game_name: String,
     started_at: String,
     ended_at: Option<String>,
     duration_secs: i64,
     active_secs: i64,
     idle_secs: i64,
+    source: String,
 }
 
 #[derive(Serialize)]
@@ -66,17 +68,50 @@ struct BatchResponse {
     inserted: Option<i64>,
 }
 
+// --- Games cache sync types ---
+
 #[derive(Deserialize)]
-struct SignaturesResponse {
-    signatures: Vec<SignatureEntry>,
+struct GameEntry {
+    id: String,
+    name: String,
+    slug: Option<String>,
+    cover_url: Option<String>,
+}
+
+// --- IGDB resolution types ---
+
+#[derive(Serialize)]
+struct IgdbSearchRequest {
+    query: String,
+    limit: u32,
 }
 
 #[derive(Deserialize)]
-struct SignatureEntry {
-    process_name: String,
-    game_id: String,
-    game_name: Option<String>,
-    game_slug: Option<String>,
+struct IgdbSearchResponse {
+    results: Option<Vec<IgdbSearchResult>>,
+}
+
+#[derive(Deserialize)]
+struct IgdbSearchResult {
+    igdb_id: i64,
+    name: String,
+}
+
+#[derive(Serialize)]
+struct IgdbImportRequest {
+    igdb_id: i64,
+}
+
+#[derive(Deserialize)]
+struct IgdbImportResponse {
+    game: Option<IgdbImportedGame>,
+}
+
+#[derive(Deserialize)]
+struct IgdbImportedGame {
+    id: String,
+    name: String,
+    slug: String,
     cover_url: Option<String>,
 }
 
@@ -108,10 +143,10 @@ impl CloudSync {
     }
 
     /// Start a new session in the cloud. Returns the session ID.
-    /// Automatically refreshes token on 401 and retries once.
     pub async fn start_session(
         &self,
         game_id: &str,
+        game_name: &str,
         started_at: &str,
     ) -> Result<String> {
         let mut auth = self
@@ -125,11 +160,13 @@ impl CloudSync {
         let body = SessionInsert {
             user_id,
             game_id: game_id.to_string(),
+            game_name: game_name.to_string(),
             started_at: started_at.to_string(),
             ended_at: None,
             duration_secs: 0,
             active_secs: 0,
             idle_secs: 0,
+            source: "agent".to_string(),
         };
 
         let resp = self
@@ -186,7 +223,6 @@ impl CloudSync {
     }
 
     /// Update an active session in the cloud.
-    /// Automatically refreshes token on 401 and retries once.
     pub async fn update_session(
         &self,
         session_id: &str,
@@ -253,7 +289,6 @@ impl CloudSync {
     }
 
     /// End a session in the cloud.
-    /// Automatically refreshes token on 401 and retries once.
     pub async fn end_session(
         &self,
         session_id: &str,
@@ -323,7 +358,6 @@ impl CloudSync {
     }
 
     /// Process the offline queue - upload pending sessions in batch.
-    /// Automatically refreshes token on 401 and retries once.
     pub async fn process_offline_queue(&self) -> Result<()> {
         let pending = self.local_db.get_pending_sessions()?;
         if pending.is_empty() {
@@ -351,11 +385,13 @@ impl CloudSync {
                 cloud_sessions.push(SessionInsert {
                     user_id: user_id.clone(),
                     game_id: s.game_id.clone(),
+                    game_name: s.game_name.clone(),
                     started_at: s.started_at.clone(),
                     ended_at: Some(s.ended_at.clone()),
                     duration_secs: s.duration_secs,
                     active_secs: s.active_secs,
                     idle_secs: s.idle_secs,
+                    source: "agent".to_string(),
                 });
             }
         }
@@ -363,21 +399,23 @@ impl CloudSync {
         // Remove custom sessions from queue without uploading
         if !custom_ids.is_empty() {
             self.local_db.remove_queued_sessions(&custom_ids)?;
-            log::info!("Removed {} custom sessions from offline queue (local only)", custom_ids.len());
+            log::info!(
+                "Removed {} custom sessions from offline queue (local only)",
+                custom_ids.len()
+            );
         }
 
         if cloud_sessions.is_empty() {
             return Ok(());
         }
 
-        let batch = BatchUpload { sessions: cloud_sessions };
+        let batch = BatchUpload {
+            sessions: cloud_sessions,
+        };
 
         let resp = self
             .client
-            .post(format!(
-                "{}/functions/v1/session-batch",
-                SUPABASE_URL
-            ))
+            .post(format!("{}/functions/v1/session-batch", SUPABASE_URL))
             .header("Authorization", &auth)
             .header("apikey", SUPABASE_ANON_KEY)
             .header("Content-Type", "application/json")
@@ -391,10 +429,7 @@ impl CloudSync {
             if let Some(new_auth) = self.refresh_and_get_auth().await {
                 auth = new_auth;
                 self.client
-                    .post(format!(
-                        "{}/functions/v1/session-batch",
-                        SUPABASE_URL
-                    ))
+                    .post(format!("{}/functions/v1/session-batch", SUPABASE_URL))
                     .header("Authorization", &auth)
                     .header("apikey", SUPABASE_ANON_KEY)
                     .header("Content-Type", "application/json")
@@ -409,7 +444,11 @@ impl CloudSync {
         };
 
         if resp.status().is_success() {
-            let ids: Vec<i64> = pending.iter().filter(|s| !s.game_id.starts_with("custom::")).map(|s| s.id).collect();
+            let ids: Vec<i64> = pending
+                .iter()
+                .filter(|s| !s.game_id.starts_with("custom::"))
+                .map(|s| s.id)
+                .collect();
             self.local_db.remove_queued_sessions(&ids)?;
             log::info!("Uploaded {} sessions from offline queue", ids.len());
         } else {
@@ -425,13 +464,13 @@ impl CloudSync {
         Ok(())
     }
 
-    /// Sync game signatures from the cloud to local DB.
-    /// Does not require authentication — signatures are public data.
-    pub async fn sync_signatures(&self) -> Result<()> {
+    /// Sync games catalog from the cloud to local DB.
+    /// Fetches from the games REST API (public data).
+    pub async fn sync_games_cache(&self) -> Result<()> {
         let resp = self
             .client
             .get(format!(
-                "{}/functions/v1/game-signatures",
+                "{}/rest/v1/games?select=id,name,slug,cover_url&limit=5000",
                 SUPABASE_URL
             ))
             .header("apikey", SUPABASE_ANON_KEY)
@@ -442,35 +481,116 @@ impl CloudSync {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             return Err(anyhow::anyhow!(
-                "Failed to fetch signatures: {} - {}",
+                "Failed to fetch games: {} - {}",
                 status,
                 text
             ));
         }
 
-        let data: SignaturesResponse = resp.json().await?;
-        let signatures: Vec<LocalSignature> = data
-            .signatures
+        let entries: Vec<GameEntry> = resp.json().await?;
+        let games: Vec<CachedGame> = entries
             .into_iter()
-            .map(|s| LocalSignature {
-                process_name: s.process_name,
-                game_id: s.game_id,
-                game_name: s.game_name.unwrap_or_default(),
-                game_slug: s.game_slug.unwrap_or_default(),
-                cover_url: s.cover_url,
+            .map(|e| CachedGame {
+                id: e.id,
+                name: e.name,
+                slug: e.slug.unwrap_or_default(),
+                cover_url: e.cover_url,
             })
             .collect();
 
-        let count = signatures.len();
-        self.local_db.replace_signatures(&signatures)?;
-        log::info!("Synced {} game signatures from cloud", count);
+        let count = games.len();
+        self.local_db.replace_games_cache(&games)?;
+        log::info!("Synced {} games from cloud", count);
 
         Ok(())
     }
 
+    /// Resolve an unknown game via IGDB edge functions.
+    /// Searches IGDB, imports the best match, and caches locally.
+    pub async fn resolve_game(&self, window_title: &str) -> Result<Option<CachedGame>> {
+        let auth = match self.get_auth_header() {
+            Some(a) => a,
+            None => return Ok(None),
+        };
+
+        // 1. Search IGDB
+        let search_resp = self
+            .client
+            .post(format!("{}/functions/v1/igdb-search", SUPABASE_URL))
+            .header("Authorization", &auth)
+            .header("apikey", SUPABASE_ANON_KEY)
+            .header("Content-Type", "application/json")
+            .json(&IgdbSearchRequest {
+                query: window_title.to_string(),
+                limit: 3,
+            })
+            .send()
+            .await?;
+
+        if !search_resp.status().is_success() {
+            log::warn!(
+                "IGDB search failed: {}",
+                search_resp.status()
+            );
+            return Ok(None);
+        }
+
+        let search_data: IgdbSearchResponse = search_resp.json().await?;
+        let results = match search_data.results {
+            Some(r) if !r.is_empty() => r,
+            _ => return Ok(None),
+        };
+
+        // Find best match: prefer exact name match, otherwise take first result
+        let title_lower = window_title.to_lowercase();
+        let best = results
+            .iter()
+            .find(|r| r.name.to_lowercase() == title_lower)
+            .unwrap_or(&results[0]);
+
+        // 2. Import from IGDB
+        let import_resp = self
+            .client
+            .post(format!("{}/functions/v1/igdb-import-game", SUPABASE_URL))
+            .header("Authorization", &auth)
+            .header("apikey", SUPABASE_ANON_KEY)
+            .header("Content-Type", "application/json")
+            .json(&IgdbImportRequest {
+                igdb_id: best.igdb_id,
+            })
+            .send()
+            .await?;
+
+        if !import_resp.status().is_success() {
+            log::warn!(
+                "IGDB import failed: {}",
+                import_resp.status()
+            );
+            return Ok(None);
+        }
+
+        let import_data: IgdbImportResponse = import_resp.json().await?;
+        let game = match import_data.game {
+            Some(g) => g,
+            None => return Ok(None),
+        };
+
+        let cached = CachedGame {
+            id: game.id,
+            name: game.name,
+            slug: game.slug,
+            cover_url: game.cover_url,
+        };
+
+        // Cache locally for future lookups
+        if let Err(e) = self.local_db.add_game_to_cache(&cached) {
+            log::warn!("Failed to cache resolved game: {}", e);
+        }
+
+        Ok(Some(cached))
+    }
+
     /// Broadcast real-time presence to Supabase Broadcast channel.
-    /// Used for instant "currently playing" updates without database writes.
-    /// Automatically refreshes token on 401 and retries once.
     pub async fn broadcast_presence(&self, payload: PresencePayload) -> Result<()> {
         let mut auth = match self.get_auth_header() {
             Some(a) => a,
@@ -513,7 +633,11 @@ impl CloudSync {
                 if !retry_resp.status().is_success() {
                     let status = retry_resp.status();
                     let text = retry_resp.text().await.unwrap_or_default();
-                    log::warn!("Failed to broadcast presence after refresh: {} - {}", status, text);
+                    log::warn!(
+                        "Failed to broadcast presence after refresh: {} - {}",
+                        status,
+                        text
+                    );
                 }
                 return Ok(());
             }

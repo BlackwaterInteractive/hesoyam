@@ -117,14 +117,9 @@ async fn sign_out(state: tauri::State<'_, AppState>) -> Result<(), String> {
 async fn get_running_processes(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     let user_procs = tracker::process_scanner::get_user_processes();
 
-    // Get known signatures and custom mappings to annotate processes
-    let signatures = state.local_db.get_all_signatures().unwrap_or_default();
+    // Get custom mappings to annotate processes
     let custom_mappings = state.local_db.get_all_custom_mappings().unwrap_or_default();
 
-    let sig_names: std::collections::HashSet<String> = signatures
-        .iter()
-        .map(|s| s.process_name.to_lowercase())
-        .collect();
     let custom_names: std::collections::HashSet<String> = custom_mappings
         .iter()
         .map(|m| m.process_name.to_lowercase())
@@ -134,10 +129,11 @@ async fn get_running_processes(state: tauri::State<'_, AppState>) -> Result<serd
         .iter()
         .map(|p| {
             let name_lower = p.name.to_lowercase();
+            let is_game_dir = tracker::process_scanner::is_game_directory(&p.exe_path);
             serde_json::json!({
                 "name": p.name,
                 "exe_path": p.exe_path,
-                "is_known_game": sig_names.contains(&name_lower),
+                "is_game_directory": is_game_dir,
                 "is_tracked": custom_names.contains(&name_lower),
             })
         })
@@ -268,12 +264,12 @@ fn main() {
                 tracker::session_manager::tracking_loop(sm, cs, db).await;
             });
 
-            // Sync signatures on startup
+            // Sync games cache on startup
             let cs2 = cloud_sync.clone();
             tauri::async_runtime::spawn(async move {
                 let sync = cs2.lock().await;
-                if let Err(e) = sync.sync_signatures().await {
-                    log::error!("Failed to sync signatures on startup: {}", e);
+                if let Err(e) = sync.sync_games_cache().await {
+                    log::error!("Failed to sync games cache on startup: {}", e);
                 }
             });
 

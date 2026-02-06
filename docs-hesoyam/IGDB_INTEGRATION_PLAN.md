@@ -27,7 +27,7 @@ create table public.games (
 - Cover images require manual URL entry
 - No standardized genre taxonomy
 - Limited metadata (missing: description, platforms, publishers, screenshots)
-- Process signature mapping is manual
+- No automated game identification (window title matching not yet implemented)
 
 ---
 
@@ -79,9 +79,9 @@ limit 10;
 - Auto-populate game metadata from IGDB
 - Fetch high-quality cover art
 
-### Phase 2: Process Name Matching
-- Use IGDB's alternative names and executable names
-- Improve automatic game detection accuracy
+### Phase 2: Pre-seed Game Database
+- Bulk import top 2000+ popular games from IGDB
+- Enables instant window-title matching for most games on day one
 
 ### Phase 3: Enhanced Game Profiles
 - Add descriptions, screenshots, platforms
@@ -107,21 +107,7 @@ ALTER TABLE public.games ADD COLUMN IF NOT EXISTS
   metadata_source text default 'manual';  -- 'manual' | 'igdb'
 ```
 
-### New Table: `igdb_alternative_names`
-For improved process matching:
-```sql
-CREATE TABLE public.igdb_alternative_names (
-  id uuid primary key default gen_random_uuid(),
-  game_id uuid references public.games(id) on delete cascade,
-  igdb_id integer not null,
-  name text not null,
-  name_type text,  -- 'alternative', 'abbreviation', 'expansion', etc.
-  created_at timestamptz default now()
-);
-
-CREATE INDEX idx_alt_names_name ON public.igdb_alternative_names
-  USING gin (lower(name) gin_trgm_ops);
-```
+**Note:** The `process_signatures` and `igdb_alternative_names` tables are NOT needed. Game identification uses **window title matching** against the `games.name` column (fuzzy search), not process-name-to-game mappings. The games table is pre-seeded with 2000+ popular games via IGDB bulk import, so most games match instantly.
 
 ---
 
@@ -286,48 +272,45 @@ Background job to refresh stale IGDB data.
 3. **Create `igdb-import-game` Edge Function**
    - Fetch full game details
    - Insert/update in `games` table
-   - Store alternative names
 
 4. **Database migration**
    - Add new columns to `games` table
-   - Create `igdb_alternative_names` table
+   - Create `system_config` table for token caching
 
-### Phase 2: Web Integration (Priority: High)
-1. **Game search UI**
-   - Add IGDB search when creating custom game mapping
+### Phase 2: Bulk Seed & Web Integration (Priority: High)
+1. **Bulk import top games from IGDB**
+   - Pre-populate database with top 2000+ popular games
+   - Full metadata: covers, descriptions, genres, screenshots
+   - Enables instant window-title matching on day one
+
+2. **Game search UI**
+   - Add IGDB search to dashboard (for manual game lookup)
    - Show IGDB results with cover previews
    - One-click import from search results
 
-2. **Game details enrichment**
+3. **Game details enrichment**
    - Display additional metadata on game pages
    - Show screenshots gallery
    - Link to external sites
 
-3. **Admin panel** (if applicable)
-   - Bulk import popular games
-   - Review and approve process signatures with IGDB linking
-
 ### Phase 3: Desktop Integration (Priority: Medium)
-1. **Enhanced game matcher**
-   - Use alternative names from IGDB for fuzzy matching
-   - Suggest IGDB matches for unknown processes
+1. **Window title matching**
+   - Agent reads window title of detected game processes
+   - Fuzzy matches against pre-seeded `games` table
+   - Falls back to IGDB search via edge function if no local match
 
-2. **Local IGDB cache**
-   - Cache game metadata in SQLite
-   - Reduce API calls for repeated lookups
+2. **Local game cache**
+   - Cache game metadata in SQLite for offline support
+   - Sync from cloud on startup / every 24 hours
 
-3. **Custom mapping flow**
-   - When user maps unknown process, search IGDB
-   - Auto-populate game details from selection
+3. **Manual tagging**
+   - User can tag any window as a game
+   - User can add windows/processes to an ignore list
 
 ### Phase 4: Background Sync (Priority: Low)
 1. **Scheduled metadata refresh**
    - Daily job to update stale records
    - Fetch new cover art if changed
-
-2. **Popular games seeding**
-   - Pre-populate database with top 1000 games
-   - Include common process signatures
 
 ---
 
@@ -439,14 +422,13 @@ for (const batch of chunks(gameIds, 10)) {
 - [ ] QA and bug fixes
 
 ### Week 5-6: Desktop Integration
-- [ ] Update desktop client to use IGDB-linked games
-- [ ] Implement local caching in SQLite
-- [ ] Add IGDB search to custom mapping flow
-- [ ] Cross-platform testing
+- [ ] Implement window title matching against local games cache
+- [ ] Implement local SQLite cache with cloud sync
+- [ ] Add IGDB fallback search for unrecognized games
+- [ ] Add user ignore list for non-game processes
 
 ### Week 7+: Polish & Background Jobs
 - [ ] Implement scheduled metadata refresh
-- [ ] Seed popular games
 - [ ] Performance optimization
 - [ ] Documentation
 
@@ -458,9 +440,9 @@ for (const batch of chunks(gameIds, 10)) {
    - Use IGDB URLs directly? (dependency on their CDN)
    - Mirror to our own storage? (cost + complexity)
 
-2. **Process Signature Matching**
-   - Does IGDB provide executable names?
-   - Need to build our own mapping regardless?
+2. **Window Title Matching Accuracy**
+   - How to handle games with generic window titles?
+   - Fuzzy match threshold tuning needed?
 
 3. **Rate Limit Concerns**
    - Will 4 req/s be enough at scale?
@@ -703,16 +685,6 @@ for (const batch of chunks(gameIds, 10)) {
   │    │   │ RETURNING id                                │     │
   │    │   └─────────────────────────────────────────────┘     │
   │    │          │                                             │
-  │    │          ▼                                             │
-  │    │   Step E: Store alternative names (for matching)       │
-  │    │   ┌─────────────────────────────────────────────┐     │
-  │    │   │ INSERT INTO igdb_alternative_names          │     │
-  │    │   │ (game_id, igdb_id, name, name_type)         │     │
-  │    │   │ VALUES                                      │     │
-  │    │   │   (uuid, 119133, 'Elden Ring', 'main'),     │     │
-  │    │   │   (uuid, 119133, 'ER', 'abbreviation'),     │     │
-  │    │   │   ...                                       │     │
-  │    │   └─────────────────────────────────────────────┘     │
   │    │          │                                             │
   │    ▼          ▼                                             │
   │  Return existing    Return new game                         │
@@ -724,109 +696,73 @@ for (const batch of chunks(gameIds, 10)) {
   ┌─────────────────────────────────────────────────────────────┐
   │  Web Dashboard                                              │
   │  - Show success message                                     │
-  │  - Now user can link process_name → this game_id            │
   │  - Game appears in library with full metadata               │
+  │  - Window title matching will now recognize this game       │
   └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### 4. Desktop Process Matching Flow (Enhanced with IGDB)
+### 4. Desktop Game Detection Flow (Window Title Matching)
 
-**Scenario:** Desktop agent detects `eldenring.exe` running
+**Scenario:** User launches a game installed via Steam
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                 DESKTOP PROCESS MATCHING FLOW                           │
+│                  DESKTOP GAME DETECTION FLOW                            │
 └─────────────────────────────────────────────────────────────────────────┘
 
-  CURRENT FLOW (without IGDB):
   ┌─────────────────────────────────────────────────────────────┐
-  │  Process Scanner detects: eldenring.exe                     │
+  │  Process Scanner (every 30 seconds)                         │
+  │  Detects new process running                                │
   └──────────────────────────┬──────────────────────────────────┘
                              │
                              ▼
   ┌─────────────────────────────────────────────────────────────┐
-  │  Game Matcher: Check local SQLite cache                     │
+  │  Step 1: Is this a game? (Directory Check)                  │
   │  ┌─────────────────────────────────────────────────────┐   │
-  │  │ SELECT * FROM signatures                            │   │
-  │  │ WHERE process_name = 'eldenring.exe'                │   │
+  │  │ Check if exe path is inside:                        │   │
+  │  │   C:\...\Steam\steamapps\common\*                   │   │
+  │  │   C:\...\Epic Games\*                               │   │
+  │  │   C:\...\GOG Galaxy\Games\*                         │   │
+  │  │   C:\XboxGames\*                                    │   │
+  │  │   (or user-tagged window)                           │   │
   │  └─────────────────────────────────────────────────────┘   │
   └──────────────────────────┬──────────────────────────────────┘
                              │
                     ┌────────┴────────┐
-                   FOUND           NOT FOUND
-                    │                  │
-                    ▼                  ▼
-             Start tracking      Show "Unknown process"
-             game session        in tray menu
-                                      │
-                                      ▼
-                              User must manually
-                              map to a game
-
-
-  ENHANCED FLOW (with IGDB):
-  ┌─────────────────────────────────────────────────────────────┐
-  │  Process Scanner detects: eldenring.exe                     │
-  └──────────────────────────┬──────────────────────────────────┘
-                             │
-                             ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │  Game Matcher: Check local SQLite cache                     │
-  │  ┌─────────────────────────────────────────────────────┐   │
-  │  │ SELECT * FROM signatures                            │   │
-  │  │ WHERE process_name = 'eldenring.exe'                │   │
-  │  └─────────────────────────────────────────────────────┘   │
-  └──────────────────────────┬──────────────────────────────────┘
-                             │
-                    ┌────────┴────────┐
-                   FOUND           NOT FOUND
-                    │                  │
-                    ▼                  ▼
-             Start tracking     ┌─────────────────────────────────┐
-             game session       │  NEW: Fuzzy match against       │
-                                │  alternative names cache        │
-                                │  ┌─────────────────────────┐   │
-                                │  │ SELECT * FROM alt_names │   │
-                                │  │ WHERE name ILIKE        │   │
-                                │  │   '%elden%ring%'        │   │
-                                │  │ OR name ILIKE           │   │
-                                │  │   '%eldenring%'         │   │
-                                │  └─────────────────────────┘   │
-                                └──────────────┬──────────────────┘
-                                               │
-                                      ┌────────┴────────┐
-                                   MATCH             NO MATCH
-                                     │                   │
-                                     ▼                   ▼
-                              ┌─────────────┐    ┌─────────────────┐
-                              │ Suggest     │    │ Search IGDB     │
-                              │ "Elden Ring"│    │ via Edge Fn     │
-                              │ to user     │    │ (if online)     │
-                              └──────┬──────┘    └────────┬────────┘
-                                     │                    │
-                                     ▼                    ▼
-                              ┌─────────────────────────────────────┐
-                              │  Tray Notification:                 │
-                              │  "Detected: eldenring.exe"          │
-                              │  ┌───────────────────────────────┐  │
-                              │  │ Did you mean?                 │  │
-                              │  │ ○ Elden Ring (IGDB match)     │  │
-                              │  │ ○ Search for different game   │  │
-                              │  │ ○ Ignore this process         │  │
-                              │  └───────────────────────────────┘  │
-                              └─────────────────────────────────────┘
-                                     │
-                                     │ User confirms "Elden Ring"
-                                     ▼
-                              ┌─────────────────────────────────────┐
-                              │  1. Import game from IGDB (if new)  │
-                              │  2. Create process_signature:       │
-                              │     eldenring.exe → Elden Ring      │
-                              │  3. Start tracking session          │
-                              │  4. Sync signature to cloud         │
-                              └─────────────────────────────────────┘
+                NOT GAME           GAME
+                    │                │
+                    ▼                ▼
+               Ignore         ┌─────────────────────────────────┐
+                              │  Step 2: Read Window Title       │
+                              │  e.g. "Elden Ring"               │
+                              └──────────────┬──────────────────┘
+                                             │
+                                             ▼
+                              ┌─────────────────────────────────┐
+                              │  Step 3: Match against games DB  │
+                              │  (local SQLite cache of games)   │
+                              │  Fuzzy match window title        │
+                              │  against games.name              │
+                              └──────────────┬──────────────────┘
+                                             │
+                                    ┌────────┴────────┐
+                                  MATCH            NO MATCH
+                                    │                  │
+                                    ▼                  ▼
+                             Start tracking     ┌─────────────────┐
+                             session with       │ Search IGDB via │
+                             matched game       │ edge function   │
+                                                └────────┬────────┘
+                                                         │
+                                                ┌────────┴────────┐
+                                              FOUND          NOT FOUND
+                                                │                │
+                                                ▼                ▼
+                                         Import game &     Tray prompt:
+                                         start tracking    "Tag as game?"
+                                                           or ignore
 ```
 
 ---
@@ -840,36 +776,18 @@ for (const batch of chunks(gameIds, 10)) {
 │                    BACKGROUND SYNC FLOWS                                │
 └─────────────────────────────────────────────────────────────────────────┘
 
-  A) SIGNATURE SYNC (Desktop ↔ Cloud) - Already exists, enhanced
+  A) GAMES DB SYNC (Desktop ↔ Cloud)
   ┌─────────────────────────────────────────────────────────────┐
   │  Desktop App Startup / Every 24 hours                       │
   └──────────────────────────┬──────────────────────────────────┘
                              │
                              ▼
   ┌─────────────────────────────────────────────────────────────┐
-  │  GET /functions/v1/game-signatures                          │
+  │  Fetch full games catalog from Supabase                     │
+  │  (name, slug, cover_url, genres, igdb_id)                   │
   │                                                             │
-  │  Response now includes IGDB-enriched data:                  │
-  │  {                                                          │
-  │    "signatures": [                                          │
-  │      {                                                      │
-  │        "process_name": "eldenring.exe",                     │
-  │        "game_id": "uuid",                                   │
-  │        "game_name": "Elden Ring",                           │
-  │        "cover_url": "https://...",                          │
-  │        "igdb_id": 119133,           ← NEW                   │
-  │        "alternative_names": [...]    ← NEW                  │
-  │      }                                                      │
-  │    ]                                                        │
-  │  }                                                          │
-  └──────────────────────────┬──────────────────────────────────┘
-                             │
-                             ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │  Store in local SQLite:                                     │
-  │  - signatures table (process → game mapping)                │
-  │  - games_cache table (game metadata + covers)               │
-  │  - alternative_names table (for fuzzy matching)             │
+  │  Store in local SQLite games_cache table                    │
+  │  Used for offline window-title matching                     │
   └─────────────────────────────────────────────────────────────┘
 
 
@@ -934,7 +852,7 @@ for (const batch of chunks(gameIds, 10)) {
   │   ┌─────────────────────────────────────────────────┐      │
   │   │ TTL: Permanent (refresh via background job)     │      │
   │   │ Use: Primary source of truth after import       │      │
-  │   │ Tables: games, igdb_alternative_names           │      │
+  │   │ Tables: games                                    │      │
   │   └─────────────────────────────────────────────────┘      │
   │                     │                                       │
   │                     ▼                                       │
@@ -942,7 +860,7 @@ for (const batch of chunks(gameIds, 10)) {
   │   ┌─────────────────────────────────────────────────┐      │
   │   │ TTL: Until next signature sync (24 hours)       │      │
   │   │ Use: Offline support, fast local lookups        │      │
-  │   │ Tables: signatures, games_cache, alt_names      │      │
+  │   │ Tables: games_cache (for window title matching)  │      │
   │   └─────────────────────────────────────────────────┘      │
   │                                                             │
   └─────────────────────────────────────────────────────────────┘
@@ -987,27 +905,22 @@ for (const batch of chunks(gameIds, 10)) {
 └─────────────────────────────────────────────────────────────────────────┘
 
   1. USER LAUNCHES GAME
-     └─▶ Desktop detects "eldenring.exe"
-     └─▶ No signature found locally
-     └─▶ Fuzzy match finds "Elden Ring" in alt_names cache
-     └─▶ User confirms via tray notification
+     └─▶ Desktop detects new process in Steam directory
+     └─▶ Reads window title: "Elden Ring"
+     └─▶ Fuzzy matches against local games cache → instant match
+     └─▶ Session tracking starts automatically
 
-  2. GAME IMPORTED FROM IGDB
-     └─▶ Desktop calls igdb-import-game edge function
-     └─▶ Full metadata fetched from IGDB
-     └─▶ Game stored in PostgreSQL with cover, description, etc.
-     └─▶ Alternative names stored for future matching
+  2. UNRECOGNIZED GAME (rare — game not in pre-seeded DB)
+     └─▶ Window title doesn't match any cached game
+     └─▶ Agent searches IGDB via edge function
+     └─▶ Game found, imported into DB with full metadata
+     └─▶ Session tracking starts, game now in DB for all users
 
-  3. SIGNATURE CREATED
-     └─▶ "eldenring.exe" → "Elden Ring" mapping saved
-     └─▶ Synced to cloud (process_signatures table)
-     └─▶ Other users can now auto-detect this game
-
-  4. SESSION TRACKED
+  3. SESSION TRACKED
      └─▶ Desktop tracks play time as usual
      └─▶ Session synced to cloud on game exit
 
-  5. WEB DASHBOARD SHOWS RICH DATA
+  4. WEB DASHBOARD SHOWS RICH DATA
      └─▶ User visits dashboard
      └─▶ Elden Ring shows with:
          - High-quality cover art from IGDB
@@ -1016,16 +929,16 @@ for (const batch of chunks(gameIds, 10)) {
          - Links to Steam/official site
          - Play time statistics
 
-  6. NEXT DAY: BACKGROUND REFRESH
+  5. NEXT DAY: BACKGROUND REFRESH
      └─▶ Scheduled job checks for stale metadata
      └─▶ If Elden Ring data is >30 days old, refresh
      └─▶ New screenshots or rating changes pulled in
 ```
 
 This flow ensures:
-- **Fast lookups** via multi-layer caching
-- **Offline support** via local SQLite
-- **Community benefit** via shared process signatures
+- **Instant detection** for 2000+ pre-seeded games via window title matching
+- **Offline support** via local SQLite games cache
+- **Self-healing** — any unrecognized game gets imported from IGDB and benefits all users
 - **Fresh data** via background sync
 - **Rate limit compliance** via throttling and caching
 

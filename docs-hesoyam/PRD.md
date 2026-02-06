@@ -54,29 +54,35 @@ A lightweight background process that detects and logs gaming sessions.
 
 | Feature | Description | Priority |
 |---------|-------------|----------|
-| **Game Detection** | Detect running game processes by matching against a known game database + user-confirmed unknowns | P0 |
+| **Game Detection** | Detect running games via game directory check + window title matching against pre-seeded IGDB database | P0 |
 | **Session Tracking** | Log session start, end, and duration with idle detection | P0 |
 | **System Tray App** | Minimal UI — tray icon with status, pause/resume, current session info | P0 |
 | **Auto-Start** | Option to launch on Windows startup | P1 |
-| **Manual Game Add** | User can manually tag an unrecognized process as a game | P1 |
+| **Manual Game Add** | User can manually tag any window as a tracked game, or add to ignore list | P1 |
 | **Cloud Sync** | Push session data to Hesoyam API in real-time | P0 |
 | **Offline Support** | Queue sessions locally when offline, sync when back online | P1 |
 | **Low Resource Usage** | < 50MB RAM, < 1% CPU at all times | P0 |
 
 #### Game Detection Strategy
 
+The agent uses **window title matching** against a pre-seeded game database (populated via IGDB bulk import before launch). Process names are NOT used for game identification — they are unreliable and require manual mapping.
+
 ```
-1. Poll running processes every 30 seconds
-2. Match process names against known game database
-   - Source: IGDB + manually curated list
-   - Examples: "witcher3.exe" -> "The Witcher 3: Wild Hunt"
-3. For unmatched processes:
-   - Check if the exe is inside a known game directory
-     (Steam/steamapps, Epic Games, Xbox, etc.)
-   - If found, prompt user to confirm & name it
-4. User can manually add any process as a tracked game
-5. Maintain a local + cloud "game signature" database that
-   improves over time (community-contributed)
+1. Scan running processes every 30 seconds
+2. Filter: is this process running from a known game directory?
+   - Steam:  C:\Program Files\Steam\steamapps\common\*
+   - Epic:   C:\Program Files\Epic Games\*
+   - GOG:    C:\Program Files\GOG Galaxy\Games\*
+   - Xbox:   C:\XboxGames\*
+   - If NO → ignore (not a game)
+   - If YES → proceed to identification
+3. Read the window title of the detected process
+4. Fuzzy match window title against games table (pre-seeded with
+   2000+ games from IGDB, with full metadata)
+   - If match found → start tracking immediately
+   - If no match → search IGDB via edge function → import game
+5. User can manually tag any window as a game ("track this")
+6. User can add processes/windows to an ignore list
 ```
 
 #### Session Logic
@@ -505,7 +511,6 @@ Game
   genres          String[] (from IGDB)
   developer       String
   release_year    Int
-  process_names   String[] (e.g., ["witcher3.exe", "witcher3_dx11.exe"])
   created_at      DateTime
 
 GameSession
@@ -540,16 +545,6 @@ UserGame (aggregated stats, updated on session end)
 
   @@id([user_id, game_id])
 
-ProcessSignature (community game detection)
-  id              UUID
-  process_name    String
-  game_id         UUID (FK -> Game)
-  reported_by     UUID (FK -> User)
-  confirmed_count Int (how many users confirmed this mapping)
-  status          Enum (pending, approved, rejected)
-  created_at      DateTime
-
-  @@unique([process_name, game_id])
 ```
 
 ---
@@ -600,10 +595,10 @@ GET    /api/profile/:username         -> Public profile data
 PATCH  /api/profile                   -> Update profile
 ```
 
-### Game Detection
+### Games API (IGDB)
 ```
-GET    /api/detect/signatures         -> Download game signature DB
-POST   /api/detect/report             -> Report a new process->game mapping
+POST   /functions/v1/igdb-search      -> Search IGDB for games by name
+POST   /functions/v1/igdb-import-game -> Import a game from IGDB into our DB
 ```
 
 ---
@@ -639,7 +634,7 @@ POST   /api/detect/report             -> Report a new process->game mapping
 ```
 1. User boots PC -> Hesoyam agent starts automatically
 2. User launches a game
-3. Agent detects game process, starts session
+3. Agent detects game via directory check + window title match, starts session
 4. Tray icon turns green: "Playing Elden Ring"
 5. User plays for 2 hours
 6. User closes game
@@ -657,11 +652,11 @@ POST   /api/detect/report             -> Report a new process->game mapping
 - [ ] Database schema + migrations
 - [ ] Auth system (Supabase email auth)
 - [ ] Basic API endpoints (sessions, games)
-- [ ] Game signature database (seed with top 200 PC games)
+- [ ] Seed games database with top 2000+ games via IGDB bulk import
 
 ### Milestone 2: Windows Agent
-- [ ] Process detection engine
-- [ ] Game matching against signature DB
+- [ ] Process detection engine (game directory check + window title reading)
+- [ ] Game matching via window title against pre-seeded games DB
 - [ ] Session tracking with idle detection
 - [ ] System tray UI
 - [ ] Cloud sync (real-time + offline queue)
@@ -669,6 +664,8 @@ POST   /api/detect/report             -> Report a new process->game mapping
 - [ ] Installer / auto-updater
 - [ ] Agent heartbeat (agent_last_seen) for priority detection
 - [ ] Take over Discord sessions when agent starts
+- [ ] IGDB fallback search for unrecognized games
+- [ ] User ignore list for non-game processes
 
 ### Milestone 2.5: Discord RP Server
 - [x] Discord bot setup with Presence Intent

@@ -1,6 +1,7 @@
 use crate::storage::local_db::LocalDb;
 use crate::sync::cloud_sync::{CloudSync, PresencePayload};
 use crate::tracker::{game_matcher, idle_detector, process_scanner};
+use crate::tracker::process_scanner::GameCandidate;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -15,7 +16,7 @@ pub struct ActiveSession {
     pub game_name: String,
     pub game_slug: String,
     pub cover_url: Option<String>,
-    pub process_name: String,
+    pub window_title: String,
     pub started_at: DateTime<Utc>,
     pub last_update: DateTime<Utc>,
     pub total_duration_secs: i64,
@@ -37,6 +38,8 @@ pub struct SessionManager {
     local_db: Arc<LocalDb>,
     paused: bool,
     today_completed_secs: i64,
+    /// Tracks window titles we've already tried to resolve via IGDB (avoid repeated lookups)
+    resolution_attempted: std::collections::HashSet<String>,
 }
 
 impl SessionManager {
@@ -46,6 +49,7 @@ impl SessionManager {
             local_db,
             paused: false,
             today_completed_secs: 0,
+            resolution_attempted: std::collections::HashSet::new(),
         }
     }
 
@@ -78,26 +82,72 @@ impl SessionManager {
         }
     }
 
+    /// Check if a window title has already been attempted for resolution.
+    pub fn was_resolution_attempted(&self, window_title: &str) -> bool {
+        self.resolution_attempted.contains(&window_title.to_lowercase())
+    }
+
+    /// Mark a window title as attempted for resolution.
+    pub fn mark_resolution_attempted(&mut self, window_title: &str) {
+        self.resolution_attempted.insert(window_title.to_lowercase());
+    }
+
+    /// Add a session for a game that was resolved via IGDB.
+    pub fn add_resolved_session(
+        &mut self,
+        game_id: String,
+        game_name: String,
+        game_slug: String,
+        cover_url: Option<String>,
+        window_title: String,
+    ) -> Option<String> {
+        if self.active_sessions.contains_key(&game_id) {
+            return None;
+        }
+
+        let now = Utc::now();
+        self.active_sessions.insert(
+            game_id.clone(),
+            ActiveSession {
+                session_id: None,
+                game_id: game_id.clone(),
+                game_name,
+                game_slug,
+                cover_url,
+                window_title,
+                started_at: now,
+                last_update: now,
+                total_duration_secs: 0,
+                active_secs: 0,
+                idle_secs: 0,
+                is_idle: false,
+                is_custom: false,
+            },
+        );
+
+        Some(game_id)
+    }
+
     /// Main tick: scan processes, update sessions, detect idle.
-    /// Returns (completed_sessions, newly_started_game_ids).
+    /// Returns (completed_sessions, newly_started_game_ids, unresolved_candidates).
     pub fn tick(&mut self) -> TickResult {
         if self.paused {
             return TickResult::default();
         }
 
-        let running = process_scanner::scan_running_processes();
-        let matched = game_matcher::match_games(&running, &self.local_db);
+        let candidates = process_scanner::scan_game_candidates();
+        let match_result = game_matcher::match_games(&candidates, &self.local_db);
         let is_idle = idle_detector::is_idle();
         let now = Utc::now();
 
         let mut completed = Vec::new();
         let mut started = Vec::new();
 
-        // Start new sessions for newly detected games
-        for game in &matched {
+        // Start new sessions for matched games
+        for game in &match_result.matched {
             if !self.active_sessions.contains_key(&game.game_id) {
                 started.push(game.game_id.clone());
-                log::info!("Game detected: {} ({})", game.game_name, game.process_name);
+                log::info!("Game detected: {} (window: {})", game.game_name, game.window_title);
                 self.active_sessions.insert(
                     game.game_id.clone(),
                     ActiveSession {
@@ -106,7 +156,7 @@ impl SessionManager {
                         game_name: game.game_name.clone(),
                         game_slug: game.game_slug.clone(),
                         cover_url: game.cover_url.clone(),
-                        process_name: game.process_name.clone(),
+                        window_title: game.window_title.clone(),
                         started_at: now,
                         last_update: now,
                         total_duration_secs: 0,
@@ -119,9 +169,9 @@ impl SessionManager {
             }
         }
 
-        // Update existing sessions
+        // Collect IDs of games still running (matched + currently active via window title)
         let matched_ids: std::collections::HashSet<_> =
-            matched.iter().map(|g| g.game_id.clone()).collect();
+            match_result.matched.iter().map(|g| g.game_id.clone()).collect();
 
         let ended_ids: Vec<String> = self
             .active_sessions
@@ -134,11 +184,7 @@ impl SessionManager {
         for game_id in ended_ids {
             if let Some(session) = self.active_sessions.remove(&game_id) {
                 let duration = session.duration_secs();
-                log::info!(
-                    "Game ended: {} ({}s)",
-                    session.game_name,
-                    duration
-                );
+                log::info!("Game ended: {} ({}s)", session.game_name, duration);
                 self.today_completed_secs += duration;
                 completed.push(CompletedSession {
                     session_id: session.session_id,
@@ -170,7 +216,18 @@ impl SessionManager {
             session.last_update = now;
         }
 
-        TickResult { completed, started }
+        // Filter unresolved to only those we haven't tried yet
+        let unresolved: Vec<GameCandidate> = match_result
+            .unresolved
+            .into_iter()
+            .filter(|c| !self.resolution_attempted.contains(&c.window_title.to_lowercase()))
+            .collect();
+
+        TickResult {
+            completed,
+            started,
+            unresolved,
+        }
     }
 }
 
@@ -178,6 +235,7 @@ impl SessionManager {
 pub struct TickResult {
     pub completed: Vec<CompletedSession>,
     pub started: Vec<String>, // game_ids of newly started sessions
+    pub unresolved: Vec<GameCandidate>, // candidates needing IGDB resolution
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,11 +279,10 @@ pub async fn tracking_loop(
                         if game_id.starts_with("custom::") {
                             continue;
                         }
-                        // Clone session data before potential mutable borrow
                         let session_clone = manager.active_sessions.get(game_id).cloned();
                         if let Some(session) = session_clone {
                             let started_at = session.started_at.to_rfc3339();
-                            match sync.start_session(game_id, &started_at).await {
+                            match sync.start_session(game_id, &session.game_name, &started_at).await {
                                 Ok(cloud_id) => {
                                     log::info!("Cloud session started for {}: {}", game_id, cloud_id);
                                     manager.set_session_id(game_id, cloud_id);
@@ -237,6 +294,50 @@ pub async fn tracking_loop(
 
                             // Broadcast presence "start" event immediately
                             broadcast_session_presence(&sync, &session, "start").await;
+                        }
+                    }
+                }
+
+                // Resolve unmatched game candidates via IGDB
+                if !result.unresolved.is_empty() {
+                    let sync = cloud_sync.lock().await;
+                    let mut manager = session_manager.lock().await;
+                    for candidate in &result.unresolved {
+                        manager.mark_resolution_attempted(&candidate.window_title);
+
+                        log::info!("Resolving unmatched game via IGDB: {}", candidate.window_title);
+                        match sync.resolve_game(&candidate.window_title).await {
+                            Ok(Some(game)) => {
+                                log::info!("Resolved: {} -> {} ({})", candidate.window_title, game.name, game.id);
+                                // Add session for the resolved game
+                                if let Some(game_id) = manager.add_resolved_session(
+                                    game.id.clone(),
+                                    game.name.clone(),
+                                    game.slug.clone(),
+                                    game.cover_url.clone(),
+                                    candidate.window_title.clone(),
+                                ) {
+                                    // Start cloud session
+                                    if let Some(session) = manager.active_sessions.get(&game_id).cloned() {
+                                        let started_at = session.started_at.to_rfc3339();
+                                        match sync.start_session(&game_id, &session.game_name, &started_at).await {
+                                            Ok(cloud_id) => {
+                                                manager.set_session_id(&game_id, cloud_id);
+                                            }
+                                            Err(e) => {
+                                                log::warn!("Failed to start cloud session for resolved game: {}", e);
+                                            }
+                                        }
+                                        broadcast_session_presence(&sync, &session, "start").await;
+                                    }
+                                }
+                            }
+                            Ok(None) => {
+                                log::debug!("No IGDB match for: {}", candidate.window_title);
+                            }
+                            Err(e) => {
+                                log::warn!("IGDB resolution failed for {}: {}", candidate.window_title, e);
+                            }
                         }
                     }
                 }
@@ -347,8 +448,8 @@ async fn broadcast_end_presence(sync: &CloudSync, session: &CompletedSession) {
             user_id,
             game_id: session.game_id.clone(),
             game_name: session.game_name.clone(),
-            game_slug: String::new(), // CompletedSession doesn't have slug
-            cover_url: None,          // CompletedSession doesn't have cover_url
+            game_slug: String::new(),
+            cover_url: None,
             started_at: session.started_at.to_rfc3339(),
             event: "end".to_string(),
         };
