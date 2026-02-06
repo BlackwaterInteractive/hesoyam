@@ -137,11 +137,12 @@ async function searchAndImportFromIgdb(gameName: string): Promise<ResolvedGame |
   }
 
   const escapedQuery = gameName.replace(/"/g, '\\"');
+  // Note: IGDB's `search` + `where category` don't compose correctly (returns empty).
+  // Scoring/filtering is handled by the igdb-search edge function instead.
   const apicalypse = [
     'fields name, slug, cover.url, genres.name, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, first_release_date, total_rating, total_rating_count, summary;',
     `search "${escapedQuery}";`,
-    'where category = 0;',
-    'limit 3;',
+    'limit 20;',
   ].join('\n');
 
   const igdbRes = await fetch('https://api.igdb.com/v4/games', {

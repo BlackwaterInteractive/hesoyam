@@ -9,3 +9,5 @@ target/
 .DS_Store
 .turbo/
 .mcp.json
+docs-hesoyam/
+package-lock.json
