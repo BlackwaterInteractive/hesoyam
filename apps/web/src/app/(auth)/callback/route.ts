@@ -11,21 +11,55 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      // Check if the user has a username set
       const {
         data: { user },
       } = await supabase.auth.getUser()
 
       if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('username')
-          .eq('id', user.id)
-          .single()
+        const isDiscordAuth =
+          user.app_metadata?.provider === 'discord' ||
+          user.app_metadata?.providers?.includes('discord')
+        const discordId = user.user_metadata?.provider_id
 
-        // If no profile or no username, redirect to setup
-        if (!profile || !profile.username) {
-          return NextResponse.redirect(`${origin}/setup-username`)
+        if (isDiscordAuth && discordId) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('username, discord_id')
+            .eq('id', user.id)
+            .single()
+
+          // Sync Discord metadata to profile if not already set
+          if (profile && !profile.discord_id) {
+            await supabase
+              .from('profiles')
+              .update({
+                discord_id: discordId,
+                discord_connected_at: new Date().toISOString(),
+                display_name:
+                  user.user_metadata?.global_name ||
+                  user.user_metadata?.full_name ||
+                  user.user_metadata?.name ||
+                  null,
+                avatar_url: user.user_metadata?.avatar_url || null,
+              })
+              .eq('id', user.id)
+          }
+
+          // Redirect to setup-username if no username yet
+          if (!profile || !profile.username) {
+            return NextResponse.redirect(`${origin}/setup-username`)
+          }
+        } else {
+          // Non-Discord auth fallback: check username
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('id', user.id)
+            .single()
+
+          if (!profile || !profile.username) {
+            return NextResponse.redirect(`${origin}/setup-username`)
+          }
         }
       }
 

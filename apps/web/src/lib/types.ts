@@ -21,6 +21,7 @@ export type Database = {
           discord_id: string | null
           discord_connected_at: string | null
           agent_last_seen: string | null
+          in_guild: boolean
           created_at: string
           updated_at: string
         }
@@ -35,6 +36,7 @@ export type Database = {
           discord_id?: string | null
           discord_connected_at?: string | null
           agent_last_seen?: string | null
+          in_guild?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -49,6 +51,7 @@ export type Database = {
           discord_id?: string | null
           discord_connected_at?: string | null
           agent_last_seen?: string | null
+          in_guild?: boolean
           created_at?: string
           updated_at?: string
         }

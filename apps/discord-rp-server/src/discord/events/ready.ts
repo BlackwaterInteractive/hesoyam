@@ -2,6 +2,7 @@ import type { Client } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { userCache } from '../../services/user-cache.js';
 import { env } from '../../config/env.js';
+import { syncGuildMembership } from '../../services/guild-sync.js';
 
 /**
  * Handle Discord client ready event
@@ -32,6 +33,11 @@ export async function handleReady(client: Client<true>): Promise<void> {
 
   // Subscribe to real-time updates for new Discord connections
   userCache.subscribeToUpdates();
+
+  // Sync guild membership status for all tracked users
+  if (hesoyamGuild) {
+    await syncGuildMembership(hesoyamGuild);
+  }
 
   // Log initial presence data
   logInitialPresenceStats(client);

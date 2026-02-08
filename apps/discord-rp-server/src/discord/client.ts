@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { handleReady } from './events/ready.js';
 import { handlePresenceUpdate } from './events/presence-update.js';
+import { handleGuildMemberAdd, handleGuildMemberRemove } from './events/guild-member.js';
 
 let discordClient: Client | null = null;
 
@@ -26,6 +27,8 @@ export function createDiscordClient(): Client {
   // Register event handlers
   discordClient.once('ready', handleReady);
   discordClient.on('presenceUpdate', handlePresenceUpdate);
+  discordClient.on('guildMemberAdd', handleGuildMemberAdd);
+  discordClient.on('guildMemberRemove', handleGuildMemberRemove);
 
   // Error handling
   discordClient.on('error', (error) => {

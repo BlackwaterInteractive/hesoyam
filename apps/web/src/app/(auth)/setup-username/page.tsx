@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -9,10 +9,51 @@ const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/
 export default function SetupUsernamePage() {
   const router = useRouter()
   const [username, setUsername] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
   const [available, setAvailable] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // Pre-fill from Discord metadata
+  useEffect(() => {
+    async function loadDiscordData() {
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) return
+
+      const meta = user.user_metadata
+      if (!meta) return
+
+      // Pre-fill display name
+      const name = meta.global_name || meta.full_name || meta.name || ''
+      setDisplayName(name)
+
+      // Pre-fill avatar
+      if (meta.avatar_url) {
+        setAvatarUrl(meta.avatar_url)
+      }
+
+      // Suggest username from Discord username (lowercase, special chars removed)
+      const discordUsername = meta.custom_claims?.global_name || meta.preferred_username || meta.name || ''
+      if (discordUsername) {
+        const suggested = discordUsername
+          .toLowerCase()
+          .replace(/[^a-z0-9_]/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_|_$/g, '')
+          .slice(0, 20)
+        if (suggested.length >= 3) {
+          setUsername(suggested)
+        }
+      }
+    }
+    loadDiscordData()
+  }, [])
 
   const validateFormat = (value: string): string | null => {
     if (value.length < 3) return 'Username must be at least 3 characters'
@@ -51,7 +92,6 @@ export default function SetupUsernamePage() {
     setAvailable(null)
 
     if (value.length >= 3) {
-      // Debounce the availability check
       const timeout = setTimeout(() => checkAvailability(value), 400)
       return () => clearTimeout(timeout)
     }
@@ -85,13 +125,17 @@ export default function SetupUsernamePage() {
       return
     }
 
+    const updateData: Record<string, string | null> = { username }
+    if (displayName.trim()) {
+      updateData.display_name = displayName.trim()
+    }
+
     const { error: updateError } = await supabase
       .from('profiles')
-      .update({ username })
+      .update(updateData)
       .eq('id', user.id)
 
     if (updateError) {
-      // Handle unique constraint violation
       if (updateError.code === '23505') {
         setError('Username is already taken')
         setAvailable(false)
@@ -102,7 +146,7 @@ export default function SetupUsernamePage() {
       return
     }
 
-    router.push('/dashboard')
+    router.push('/join-server')
     router.refresh()
   }
 
@@ -110,12 +154,46 @@ export default function SetupUsernamePage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-white mb-1">Choose your username</h2>
+      <h2 className="text-2xl font-bold text-white mb-1">Set up your profile</h2>
       <p className="text-sm text-zinc-400 mb-6">
-        This is how other players will find you. You can change it later.
+        Choose a username and confirm your display name
       </p>
 
+      {/* Discord avatar preview */}
+      {avatarUrl && (
+        <div className="flex justify-center mb-6">
+          <img
+            src={avatarUrl}
+            alt="Discord avatar"
+            className="h-20 w-20 rounded-full border-2 border-zinc-700"
+          />
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Display Name */}
+        <div>
+          <label
+            htmlFor="display_name"
+            className="block text-sm font-medium text-zinc-300 mb-1.5"
+          >
+            Display Name
+          </label>
+          <input
+            id="display_name"
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            maxLength={50}
+            placeholder="Your display name"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+          />
+          <p className="mt-1.5 text-xs text-zinc-500">
+            Pre-filled from your Discord profile. You can change it.
+          </p>
+        </div>
+
+        {/* Username */}
         <div>
           <label
             htmlFor="username"
@@ -190,7 +268,6 @@ export default function SetupUsernamePage() {
             )}
           </div>
 
-          {/* Availability feedback */}
           {showStatus && !checking && available === true && (
             <p className="mt-1.5 text-xs text-emerald-400">
               Username is available

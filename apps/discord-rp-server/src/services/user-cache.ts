@@ -2,6 +2,8 @@ import { getSupabase } from '../supabase/client.js';
 import { fetchConnectedUsers } from '../supabase/users.js';
 import { logger } from '../utils/logger.js';
 import type { MonitoredUser } from '../types/index.js';
+import { getDiscordClient } from '../discord/client.js';
+import { env } from '../config/env.js';
 
 /**
  * In-memory cache of Discord users being monitored
@@ -49,8 +51,8 @@ class UserCache {
             agent_last_seen?: string;
           };
 
-          // New Discord connection
-          if (!oldRow.discord_id && newRow.discord_id) {
+          // New Discord connection (skip if already in cache)
+          if (newRow.discord_id && !this.users.has(newRow.discord_id)) {
             const user: MonitoredUser = {
               id: newRow.id,
               discordId: newRow.discord_id,
@@ -63,6 +65,9 @@ class UserCache {
               discordId: newRow.discord_id,
               userId: newRow.id,
             });
+
+            // Check guild membership for the new user
+            this.checkGuildMembership(newRow.id, newRow.discord_id);
           }
 
           // Update agent_last_seen for existing user
@@ -127,6 +132,32 @@ class UserCache {
    */
   get size(): number {
     return this.users.size;
+  }
+
+  /**
+   * Check if a Discord user is in the guild and update in_guild accordingly
+   */
+  private async checkGuildMembership(userId: string, discordId: string): Promise<void> {
+    try {
+      const client = getDiscordClient();
+      const guild = client.guilds.cache.get(env.discordGuildId);
+      if (!guild) return;
+
+      const isMember = guild.members.cache.has(discordId);
+
+      const supabase = getSupabase();
+      await supabase
+        .from('profiles')
+        .update({ in_guild: isMember })
+        .eq('id', userId);
+
+      logger.info('Checked guild membership for new user', {
+        discordId,
+        inGuild: isMember,
+      });
+    } catch (error) {
+      logger.error('Failed to check guild membership', error, { discordId });
+    }
   }
 }
 
