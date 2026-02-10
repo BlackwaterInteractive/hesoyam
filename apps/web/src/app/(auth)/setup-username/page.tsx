@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -8,9 +8,12 @@ const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/
 
 export default function SetupUsernamePage() {
   const router = useRouter()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
   const [available, setAvailable] = useState<boolean | null>(null)
@@ -25,21 +28,24 @@ export default function SetupUsernamePage() {
       } = await supabase.auth.getUser()
 
       if (!user) return
+      setUserId(user.id)
 
       const meta = user.user_metadata
       if (!meta) return
 
-      // Pre-fill display name
-      const name = meta.global_name || meta.full_name || meta.name || ''
-      setDisplayName(name)
+      // Pre-fill display name from Discord global name (display name)
+      // custom_claims.global_name = Discord display name (e.g. "Ijuice")
+      // full_name / name = Discord handle (e.g. "im.caseyjones")
+      const displayNameValue = meta.custom_claims?.global_name || ''
+      setDisplayName(displayNameValue)
 
       // Pre-fill avatar
       if (meta.avatar_url) {
         setAvatarUrl(meta.avatar_url)
       }
 
-      // Suggest username from Discord username (lowercase, special chars removed)
-      const discordUsername = meta.custom_claims?.global_name || meta.preferred_username || meta.name || ''
+      // Suggest username from Discord handle (full_name is handle without discriminator)
+      const discordUsername = meta.full_name || meta.name || ''
       if (discordUsername) {
         const suggested = discordUsername
           .toLowerCase()
@@ -97,6 +103,25 @@ export default function SetupUsernamePage() {
     }
   }
 
+  function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file')
+      return
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Image must be under 2MB')
+      return
+    }
+
+    setAvatarFile(file)
+    setAvatarUrl(URL.createObjectURL(file))
+    setError(null)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -125,9 +150,35 @@ export default function SetupUsernamePage() {
       return
     }
 
+    // Upload custom avatar if selected
+    let finalAvatarUrl = avatarUrl
+    if (avatarFile) {
+      const ext = avatarFile.name.split('.').pop() || 'png'
+      const path = `${user.id}/avatar.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(path, avatarFile, { upsert: true })
+
+      if (uploadError) {
+        setError('Failed to upload avatar: ' + uploadError.message)
+        setLoading(false)
+        return
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(path)
+
+      finalAvatarUrl = urlData.publicUrl
+    }
+
     const updateData: Record<string, string | null> = { username }
     if (displayName.trim()) {
       updateData.display_name = displayName.trim()
+    }
+    if (finalAvatarUrl) {
+      updateData.avatar_url = finalAvatarUrl
     }
 
     const { error: updateError } = await supabase
@@ -146,7 +197,7 @@ export default function SetupUsernamePage() {
       return
     }
 
-    router.push('/join-server')
+    router.push('/setup-password')
     router.refresh()
   }
 
@@ -159,16 +210,41 @@ export default function SetupUsernamePage() {
         Choose a username and confirm your display name
       </p>
 
-      {/* Discord avatar preview */}
-      {avatarUrl && (
-        <div className="flex justify-center mb-6">
-          <img
-            src={avatarUrl}
-            alt="Discord avatar"
-            className="h-20 w-20 rounded-full border-2 border-zinc-700"
-          />
-        </div>
-      )}
+      {/* Avatar with edit overlay */}
+      <div className="flex justify-center mb-6">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="relative group"
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt="Avatar"
+              className="h-20 w-20 rounded-full border-2 border-zinc-700 object-cover"
+            />
+          ) : (
+            <div className="h-20 w-20 rounded-full border-2 border-zinc-700 bg-zinc-800 flex items-center justify-center">
+              <svg className="h-8 w-8 text-zinc-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+              </svg>
+            </div>
+          )}
+          <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+            <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+            </svg>
+          </div>
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleAvatarChange}
+          className="hidden"
+        />
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Display Name */}

@@ -1,6 +1,24 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+async function waitForProfile(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  retries = 2
+) {
+  for (let i = 0; i <= retries; i++) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('username, discord_id, password_set')
+      .eq('id', userId)
+      .single()
+
+    if (data) return data
+    if (i < retries) await new Promise((r) => setTimeout(r, 500))
+  }
+  return null
+}
+
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
@@ -22,14 +40,16 @@ export async function GET(request: Request) {
         const discordId = user.user_metadata?.provider_id
 
         if (isDiscordAuth && discordId) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('username, discord_id')
-            .eq('id', user.id)
-            .single()
+          const profile = await waitForProfile(supabase, user.id)
+
+          if (!profile) {
+            return NextResponse.redirect(
+              `${origin}/login?error=profile_creation_failed`
+            )
+          }
 
           // Sync Discord metadata to profile if not already set
-          if (profile && !profile.discord_id) {
+          if (!profile.discord_id) {
             await supabase
               .from('profiles')
               .update({
@@ -45,20 +65,29 @@ export async function GET(request: Request) {
               .eq('id', user.id)
           }
 
-          // Redirect to setup-username if no username yet
-          if (!profile || !profile.username) {
+          if (!profile.username) {
             return NextResponse.redirect(`${origin}/setup-username`)
+          }
+
+          if (!profile.password_set) {
+            return NextResponse.redirect(`${origin}/setup-password`)
           }
         } else {
           // Non-Discord auth fallback: check username
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('username')
-            .eq('id', user.id)
-            .single()
+          const profile = await waitForProfile(supabase, user.id)
 
-          if (!profile || !profile.username) {
+          if (!profile) {
+            return NextResponse.redirect(
+              `${origin}/login?error=profile_creation_failed`
+            )
+          }
+
+          if (!profile.username) {
             return NextResponse.redirect(`${origin}/setup-username`)
+          }
+
+          if (!profile.password_set) {
+            return NextResponse.redirect(`${origin}/setup-password`)
           }
         }
       }

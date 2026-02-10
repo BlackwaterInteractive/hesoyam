@@ -4,15 +4,26 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const DISCORD_INVITE_URL = 'https://discord.gg/hesoyam' // Update with actual invite URL
-
 export default function JoinServerPage() {
   const router = useRouter()
   const [checking, setChecking] = useState(true)
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
 
   useEffect(() => {
     async function checkGuildStatus() {
       const supabase = createClient()
+
+      // Fetch Discord invite URL from remote config
+      const { data: config } = await supabase
+        .from('system_config')
+        .select('value')
+        .eq('key', 'discord_invite_url')
+        .single()
+
+      if (config?.value) {
+        setInviteUrl(typeof config.value === 'string' ? config.value : String(config.value))
+      }
+
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -82,7 +93,7 @@ export default function JoinServerPage() {
 
       <div className="space-y-4">
         <a
-          href={DISCORD_INVITE_URL}
+          href={inviteUrl || '#'}
           target="_blank"
           rel="noopener noreferrer"
           className="w-full flex items-center justify-center gap-3 rounded-lg bg-[#5865F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4752C4]"
