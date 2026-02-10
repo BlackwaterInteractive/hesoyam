@@ -11,39 +11,42 @@ export default function JoinServerPage() {
 
   useEffect(() => {
     async function checkGuildStatus() {
-      const supabase = createClient()
+      try {
+        const supabase = createClient()
 
-      // Fetch Discord invite URL from remote config
-      const { data: config } = await supabase
-        .from('system_config')
-        .select('value')
-        .eq('key', 'discord_invite_url')
-        .single()
+        // Fetch Discord invite URL from remote config
+        const { data: config } = await supabase
+          .from('system_config')
+          .select('value')
+          .eq('key', 'discord_invite_url')
+          .single()
 
-      if (config?.value) {
-        setInviteUrl(typeof config.value === 'string' ? config.value : String(config.value))
-      }
+        if (config?.value) {
+          setInviteUrl(typeof config.value === 'string' ? config.value : String(config.value))
+        }
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
 
-      if (!user) {
-        setChecking(false)
-        return
-      }
+        if (!user) {
+          setChecking(false)
+          return
+        }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('in_guild')
-        .eq('id', user.id)
-        .single()
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('in_guild')
+          .eq('id', user.id)
+          .single()
 
-      if (profile?.in_guild) {
-        // Already in the server, skip this page
-        router.push('/dashboard')
-        router.refresh()
-        return
+        if (profile?.in_guild) {
+          router.push('/dashboard')
+          router.refresh()
+          return
+        }
+      } catch (err) {
+        console.error('Failed to check guild status:', err)
       }
 
       setChecking(false)
