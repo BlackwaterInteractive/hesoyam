@@ -55,7 +55,7 @@ export default async function DashboardLayout({
               href="https://discord.gg/hesoyam"
               target="_blank"
               rel="noopener noreferrer"
-              className="ml-4 shrink-0 rounded-lg bg-[#5865F2] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#4752C4]"
+              className="ml-4 shrink-0 bg-[#5865F2] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#4752C4]"
             >
               Join Server
             </a>

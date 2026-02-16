@@ -51,7 +51,7 @@ export function GameGrid({ games }: GameGridProps) {
             placeholder="Search games by name, developer, or genre..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl border border-zinc-800 bg-zinc-900 py-3 pl-11 pr-4 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30"
+            className="w-full border border-zinc-800 bg-zinc-900 py-3 pl-11 pr-4 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30"
           />
         </div>
       </div>
@@ -71,7 +71,7 @@ export function GameGrid({ games }: GameGridProps) {
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 py-20">
+        <div className="flex flex-col items-center justify-center border border-zinc-800 bg-zinc-900 py-20">
           <svg
             className="mb-4 h-12 w-12 text-zinc-600"
             xmlns="http://www.w3.org/2000/svg"

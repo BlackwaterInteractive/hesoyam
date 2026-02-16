@@ -13,14 +13,14 @@ interface TopGamesListProps {
 export function TopGamesList({ games }: TopGamesListProps) {
   if (games.length === 0) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-8 text-center">
+      <div className="border border-zinc-800 bg-zinc-900 p-8 text-center">
         <p className="text-sm text-zinc-400">No games tracked yet.</p>
       </div>
     )
   }
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900">
+    <div className="border border-zinc-800 bg-zinc-900">
       <div className="border-b border-zinc-800 px-4 py-3">
         <h2 className="text-sm font-semibold text-zinc-200">Top Games</h2>
       </div>
@@ -37,10 +37,10 @@ export function TopGamesList({ games }: TopGamesListProps) {
               <img
                 src={entry.game.cover_url}
                 alt={entry.game.name}
-                className="h-10 w-8 shrink-0 rounded object-cover"
+                className="h-10 w-8 shrink-0 object-cover"
               />
             ) : (
-              <div className="flex h-10 w-8 shrink-0 items-center justify-center rounded bg-zinc-800">
+              <div className="flex h-10 w-8 shrink-0 items-center justify-center bg-zinc-800">
                 <span className="text-[10px] font-medium text-zinc-500">
                   {entry.game.name.slice(0, 2).toUpperCase()}
                 </span>

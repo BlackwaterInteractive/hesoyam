@@ -26,7 +26,7 @@ function StatCard({
   sessionCount?: number
 }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+    <div className="border border-zinc-800 bg-zinc-900 p-6">
       <p className="text-sm font-medium text-zinc-400">{label}</p>
       <p className="mt-2 text-3xl font-bold text-white">
         {formatDuration(totalSecs)}
@@ -37,7 +37,7 @@ function StatCard({
         </span>
         {sessionCount != null && (
           <>
-            <span className="h-1 w-1 rounded-full bg-zinc-700" />
+            <span className="h-1 w-1 bg-zinc-700" />
             <span>
               {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'}
             </span>

@@ -17,7 +17,7 @@ export default function AuthLayout({
         </div>
 
         {/* Card */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-xl shadow-black/20">
+        <div className="bg-zinc-900 border border-zinc-800 p-8 shadow-xl shadow-black/20">
           {children}
         </div>
       </div>

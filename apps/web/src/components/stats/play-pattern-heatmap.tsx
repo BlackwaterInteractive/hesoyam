@@ -55,7 +55,7 @@ export function PlayPatternHeatmap({ data }: PlayPatternHeatmapProps) {
   })
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+    <div className="border border-zinc-800 bg-zinc-900 p-6">
       <h2 className="text-lg font-semibold text-white">Play Patterns</h2>
       <p className="mt-1 text-sm text-zinc-500">
         When you typically play throughout the week
@@ -89,7 +89,7 @@ export function PlayPatternHeatmap({ data }: PlayPatternHeatmapProps) {
                     <div
                       key={hourIdx}
                       className={cn(
-                        'aspect-square flex-1 rounded-sm transition-colors',
+                        'aspect-square flex-1  transition-colors',
                         getIntensityClass(secs, maxSecs)
                       )}
                       title={
@@ -109,11 +109,11 @@ export function PlayPatternHeatmap({ data }: PlayPatternHeatmapProps) {
       {/* Legend */}
       <div className="mt-4 flex items-center justify-end gap-2 text-xs text-zinc-500">
         <span>Less</span>
-        <div className="h-3 w-3 rounded-sm bg-zinc-800" />
-        <div className="h-3 w-3 rounded-sm bg-emerald-900" />
-        <div className="h-3 w-3 rounded-sm bg-emerald-700" />
-        <div className="h-3 w-3 rounded-sm bg-emerald-500" />
-        <div className="h-3 w-3 rounded-sm bg-emerald-400" />
+        <div className="h-3 w-3  bg-zinc-800" />
+        <div className="h-3 w-3  bg-emerald-900" />
+        <div className="h-3 w-3  bg-emerald-700" />
+        <div className="h-3 w-3  bg-emerald-500" />
+        <div className="h-3 w-3  bg-emerald-400" />
         <span>More</span>
       </div>
     </div>

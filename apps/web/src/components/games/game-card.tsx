@@ -15,9 +15,9 @@ export function GameCard({ game, userGame }: GameCardProps) {
 
   return (
     <Link href={`/games/${game.id}`}>
-      <div className="group cursor-pointer rounded-xl border border-zinc-800 bg-zinc-900 p-4 transition-all duration-200 hover:scale-[1.02] hover:border-zinc-700 hover:bg-zinc-800/80">
+      <div className="group cursor-pointer border border-zinc-800 bg-zinc-900 p-4 transition-all duration-200 hover:scale-[1.02] hover:border-zinc-700 hover:bg-zinc-800/80">
         {/* Cover image */}
-        <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg">
+        <div className="relative aspect-[3/4] w-full overflow-hidden ">
           {game.cover_url ? (
             <img
               src={game.cover_url}

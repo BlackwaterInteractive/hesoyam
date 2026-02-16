@@ -36,7 +36,7 @@ export default function SignupPage() {
       </p>
 
       {error && (
-        <div className="mb-4 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
+        <div className="mb-4 bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
           {error}
         </div>
       )}
@@ -44,7 +44,7 @@ export default function SignupPage() {
       <button
         onClick={handleDiscordSignup}
         disabled={loading}
-        className="w-full flex items-center justify-center gap-3 rounded-lg bg-[#5865F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4752C4] disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-center gap-3 bg-[#5865F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4752C4] disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? (
           <span className="inline-flex items-center gap-2">

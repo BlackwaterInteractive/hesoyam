@@ -21,7 +21,7 @@ interface StatCardProps {
 
 function StatCard({ label, value }: StatCardProps) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+    <div className="border border-zinc-800 bg-zinc-900 p-6">
       <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
         {label}
       </p>
@@ -40,7 +40,7 @@ function ChartTooltip({ active, payload, label }: CustomTooltipProps) {
   if (!active || !payload || !payload.length) return null
 
   return (
-    <div className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 shadow-lg">
+    <div className="border border-zinc-700 bg-zinc-800 px-3 py-2 shadow-lg">
       <p className="text-xs text-zinc-400">{label}</p>
       <p className="text-sm font-semibold text-emerald-400">
         {formatDuration(payload[0].value)}
@@ -113,7 +113,7 @@ export function GameDetailStats({
       </div>
 
       {/* Play time chart */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+      <div className="border border-zinc-800 bg-zinc-900 p-6">
         <h3 className="mb-6 text-lg font-semibold text-zinc-100">
           Play Time - Last 30 Days
         </h3>
@@ -151,7 +151,7 @@ export function GameDetailStats({
               <Bar
                 dataKey="playtime"
                 fill="#10b981"
-                radius={[4, 4, 0, 0]}
+                radius={[0, 0, 0, 0]}
                 maxBarSize={32}
               />
             </BarChart>

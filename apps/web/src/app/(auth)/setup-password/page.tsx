@@ -100,7 +100,7 @@ export default function SetupPasswordPage() {
             type="email"
             value={email}
             readOnly
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-2.5 text-zinc-400 outline-none cursor-not-allowed"
+            className="w-full border border-zinc-700 bg-zinc-800/50 px-4 py-2.5 text-zinc-400 outline-none cursor-not-allowed"
           />
           <p className="mt-1.5 text-xs text-zinc-500">
             This is the email linked to your Discord account
@@ -123,7 +123,7 @@ export default function SetupPasswordPage() {
             required
             minLength={8}
             placeholder="At least 8 characters"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            className="w-full border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           />
         </div>
 
@@ -143,12 +143,12 @@ export default function SetupPasswordPage() {
             required
             minLength={8}
             placeholder="Re-enter your password"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            className="w-full border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           />
         </div>
 
         {error && (
-          <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
+          <div className="bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
             {error}
           </div>
         )}
@@ -156,7 +156,7 @@ export default function SetupPasswordPage() {
         <button
           type="submit"
           disabled={loading || password.length < 8}
-          className="w-full rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
             <span className="inline-flex items-center gap-2">

@@ -23,13 +23,13 @@ export default async function LandingPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/login"
-              className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:text-white"
+              className="px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:text-white"
             >
               Login
             </Link>
             <Link
               href="/signup"
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
+              className="bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
             >
               Sign Up
             </Link>
@@ -41,7 +41,7 @@ export default async function LandingPage() {
       <section className="relative overflow-hidden px-6 pt-24 pb-20 sm:pt-32 sm:pb-28">
         {/* Background glow */}
         <div className="pointer-events-none absolute inset-0 flex items-start justify-center">
-          <div className="h-[480px] w-[720px] -translate-y-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
+          <div className="h-[480px] w-[720px] -translate-y-1/2 bg-emerald-500/10 blur-3xl" />
         </div>
 
         <div className="relative mx-auto max-w-4xl text-center">
@@ -61,13 +61,13 @@ export default async function LandingPage() {
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href="/signup"
-              className="inline-flex h-12 items-center justify-center rounded-xl bg-emerald-600 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all hover:bg-emerald-500 hover:shadow-emerald-500/30"
+              className="inline-flex h-12 items-center justify-center bg-emerald-600 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all hover:bg-emerald-500 hover:shadow-emerald-500/30"
             >
               Get Started Free
             </Link>
             <a
               href="#how-it-works"
-              className="inline-flex h-12 items-center justify-center rounded-xl border border-zinc-700 px-8 text-base font-semibold text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+              className="inline-flex h-12 items-center justify-center border border-zinc-700 px-8 text-base font-semibold text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
             >
               Learn More
             </a>
@@ -90,7 +90,7 @@ export default async function LandingPage() {
           <div className="mt-16 grid gap-10 sm:grid-cols-3 sm:gap-8">
             {/* Step 1 */}
             <div className="flex flex-col items-center text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-lg font-bold text-white">
+              <div className="flex h-14 w-14 items-center justify-center bg-emerald-600 text-lg font-bold text-white">
                 1
               </div>
               <div className="mt-6">
@@ -106,7 +106,7 @@ export default async function LandingPage() {
 
             {/* Step 2 */}
             <div className="flex flex-col items-center text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-lg font-bold text-white">
+              <div className="flex h-14 w-14 items-center justify-center bg-emerald-600 text-lg font-bold text-white">
                 2
               </div>
               <div className="mt-6">
@@ -122,7 +122,7 @@ export default async function LandingPage() {
 
             {/* Step 3 */}
             <div className="flex flex-col items-center text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-lg font-bold text-white">
+              <div className="flex h-14 w-14 items-center justify-center bg-emerald-600 text-lg font-bold text-white">
                 3
               </div>
               <div className="mt-6">
@@ -153,8 +153,8 @@ export default async function LandingPage() {
 
           <div className="mt-16 grid gap-6 sm:grid-cols-2">
             {/* Feature 1 */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-600/10 text-emerald-400">
+            <div className="border border-zinc-800 bg-zinc-900 p-6">
+              <div className="flex h-11 w-11 items-center justify-center bg-emerald-600/10 text-emerald-400">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="22"
@@ -180,8 +180,8 @@ export default async function LandingPage() {
             </div>
 
             {/* Feature 2 */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-600/10 text-emerald-400">
+            <div className="border border-zinc-800 bg-zinc-900 p-6">
+              <div className="flex h-11 w-11 items-center justify-center bg-emerald-600/10 text-emerald-400">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="22"
@@ -207,8 +207,8 @@ export default async function LandingPage() {
             </div>
 
             {/* Feature 3 */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-600/10 text-emerald-400">
+            <div className="border border-zinc-800 bg-zinc-900 p-6">
+              <div className="flex h-11 w-11 items-center justify-center bg-emerald-600/10 text-emerald-400">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="22"
@@ -234,8 +234,8 @@ export default async function LandingPage() {
             </div>
 
             {/* Feature 4 */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-600/10 text-emerald-400">
+            <div className="border border-zinc-800 bg-zinc-900 p-6">
+              <div className="flex h-11 w-11 items-center justify-center bg-emerald-600/10 text-emerald-400">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="22"
@@ -267,7 +267,7 @@ export default async function LandingPage() {
 
       {/* ─── CTA Banner ─── */}
       <section className="px-6 py-20 sm:py-28">
-        <div className="mx-auto max-w-3xl rounded-2xl border border-zinc-800 bg-zinc-900 px-8 py-14 text-center">
+        <div className="mx-auto max-w-3xl border border-zinc-800 bg-zinc-900 px-8 py-14 text-center">
           <h2 className="text-2xl font-bold text-white sm:text-3xl">
             Ready to start tracking?
           </h2>
@@ -278,13 +278,13 @@ export default async function LandingPage() {
           <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href="/signup"
-              className="inline-flex h-12 items-center justify-center rounded-xl bg-emerald-600 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all hover:bg-emerald-500"
+              className="inline-flex h-12 items-center justify-center bg-emerald-600 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all hover:bg-emerald-500"
             >
               Create Free Account
             </Link>
             <Link
               href="/download"
-              className="inline-flex h-12 items-center justify-center rounded-xl border border-zinc-700 px-8 text-base font-semibold text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+              className="inline-flex h-12 items-center justify-center border border-zinc-700 px-8 text-base font-semibold text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
             >
               Download Tracker
             </Link>

@@ -128,7 +128,7 @@ export function Sidebar({ username, displayName, avatarUrl }: SidebarProps) {
       {/* Mobile menu button */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed top-4 left-4 z-50 rounded-lg bg-zinc-900 p-2 text-zinc-400 hover:text-white lg:hidden"
+        className="fixed top-4 left-4 z-50 bg-zinc-900 p-2 text-zinc-400 hover:text-white lg:hidden"
         aria-label="Open menu"
       >
         <svg
@@ -163,7 +163,7 @@ export function Sidebar({ username, displayName, avatarUrl }: SidebarProps) {
       >
         {/* Brand */}
         <div className="flex h-16 items-center gap-3 border-b border-zinc-800 px-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
+          <div className="flex h-8 w-8 items-center justify-center bg-emerald-500/10">
             <svg
               className="h-5 w-5 text-emerald-500"
               fill="none"
@@ -212,7 +212,7 @@ export function Sidebar({ username, displayName, avatarUrl }: SidebarProps) {
               href={item.href}
               onClick={() => setMobileOpen(false)}
               className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                'flex items-center gap-3 px-3 py-2.5 text-sm font-medium transition-colors',
                 isActive(item.href)
                   ? 'bg-zinc-800/50 text-emerald-500'
                   : 'text-zinc-400 hover:bg-zinc-800/30 hover:text-white'

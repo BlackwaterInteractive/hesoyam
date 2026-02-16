@@ -61,7 +61,7 @@ export default async function GamesPage() {
         {games.length > 0 ? (
           <GameGrid games={games} />
         ) : (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 py-24">
+          <div className="flex flex-col items-center justify-center border border-zinc-800 bg-zinc-900 py-24">
             <svg
               className="mb-6 h-16 w-16 text-zinc-700"
               xmlns="http://www.w3.org/2000/svg"

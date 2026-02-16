@@ -166,7 +166,7 @@ export function LiveSessionCard({
   if (!liveSession) return null
 
   return (
-    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-6">
+    <div className="border border-emerald-500/20 bg-emerald-500/5 p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {/* Pulsing green dot */}
@@ -188,10 +188,10 @@ export function LiveSessionCard({
           <img
             src={liveSession.game.cover_url}
             alt={liveSession.game.name}
-            className="h-14 w-10 rounded-lg object-cover"
+            className="h-14 w-10 object-cover"
           />
         ) : (
-          <div className="flex h-14 w-10 items-center justify-center rounded-lg bg-zinc-800 text-xs text-zinc-500">
+          <div className="flex h-14 w-10 items-center justify-center bg-zinc-800 text-xs text-zinc-500">
             <svg
               className="h-5 w-5"
               fill="none"

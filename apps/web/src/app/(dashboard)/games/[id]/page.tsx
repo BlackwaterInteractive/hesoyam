@@ -101,7 +101,7 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
         <div className="mb-10 flex flex-col gap-8 sm:flex-row">
           {/* Cover */}
           <div className="w-full shrink-0 sm:w-48">
-            <div className="aspect-[3/4] w-full overflow-hidden rounded-lg">
+            <div className="aspect-[3/4] w-full overflow-hidden ">
               {typedGame.cover_url ? (
                 <img
                   src={typedGame.cover_url}
@@ -171,7 +171,7 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
                 {typedGame.genres.map((genre) => (
                   <span
                     key={genre}
-                    className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-300"
+                    className="border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-300"
                   >
                     {genre}
                   </span>
@@ -189,7 +189,7 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
             sessions={typedSessions}
           />
         ) : (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center">
+          <div className="border border-zinc-800 bg-zinc-900 p-6 text-center">
             <p className="text-zinc-400">
               No play time recorded for this game yet.
             </p>
@@ -198,7 +198,7 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
 
         {/* Recent sessions table */}
         {typedSessions.length > 0 && (
-          <div className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+          <div className="mt-8 border border-zinc-800 bg-zinc-900 p-6">
             <h3 className="mb-6 text-lg font-semibold text-zinc-100">
               Recent Sessions
             </h3>

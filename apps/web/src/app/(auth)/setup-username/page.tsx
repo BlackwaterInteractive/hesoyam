@@ -262,7 +262,7 @@ export default function SetupUsernamePage() {
             onChange={(e) => setDisplayName(e.target.value)}
             maxLength={50}
             placeholder="Your display name"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            className="w-full border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           />
           <p className="mt-1.5 text-xs text-zinc-500">
             Pre-filled from your Discord profile. You can change it.
@@ -287,7 +287,7 @@ export default function SetupUsernamePage() {
               maxLength={20}
               placeholder="cool_gamer"
               autoComplete="off"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+              className="w-full border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
             />
             {showStatus && (
               <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -361,7 +361,7 @@ export default function SetupUsernamePage() {
         </div>
 
         {error && (
-          <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
+          <div className="bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
             {error}
           </div>
         )}
@@ -369,7 +369,7 @@ export default function SetupUsernamePage() {
         <button
           type="submit"
           disabled={loading || checking || available === false || username.length < 3}
-          className="w-full rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
             <span className="inline-flex items-center gap-2">
