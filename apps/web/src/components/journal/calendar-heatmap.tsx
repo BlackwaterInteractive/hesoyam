@@ -536,7 +536,7 @@ export function CalendarHeatmap({
             </div>
 
             {/* Genres */}
-            {hoveredGame.genres.length > 0 && (
+            {hoveredGame.genres && hoveredGame.genres.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1">
                 {hoveredGame.genres.map((g) => (
                   <span

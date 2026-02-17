@@ -23,7 +23,7 @@ export function GameGrid({ games }: GameGridProps) {
       ({ game }) =>
         game.name.toLowerCase().includes(q) ||
         (game.developer && game.developer.toLowerCase().includes(q)) ||
-        game.genres.some((g) => g.toLowerCase().includes(q))
+        game.genres?.some((g) => g.toLowerCase().includes(q))
     )
   }, [games, search])
 
