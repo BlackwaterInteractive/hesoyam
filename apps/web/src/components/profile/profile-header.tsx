@@ -5,7 +5,7 @@ import { useGamePresence } from '@/hooks/use-game-presence'
 import type { Profile } from '@/lib/types'
 
 function getInitials(profile: Profile): string {
-  const name = profile.display_name || profile.username
+  const name = profile.display_name || profile.username || 'User'
   const parts = name.trim().split(/\s+/)
   if (parts.length >= 2) {
     return (parts[0][0] + parts[1][0]).toUpperCase()
@@ -35,7 +35,7 @@ export function ProfileHeader({ profile, initialCurrentlyPlaying, className }: P
         {profile.avatar_url ? (
           <img
             src={profile.avatar_url}
-            alt={profile.display_name || profile.username}
+            alt={profile.display_name || profile.username || 'User'}
             className="h-20 w-20 rounded-full object-cover ring-2 ring-zinc-800"
           />
         ) : (
@@ -53,9 +53,11 @@ export function ProfileHeader({ profile, initialCurrentlyPlaying, className }: P
       {/* Name and info */}
       <div className="min-w-0 flex-1">
         <h1 className="text-2xl font-bold text-zinc-50">
-          {profile.display_name || profile.username}
+          {profile.display_name || profile.username || 'User'}
         </h1>
-        <p className="text-sm text-zinc-400">@{profile.username}</p>
+        {profile.username && (
+          <p className="text-sm text-zinc-400">@{profile.username}</p>
+        )}
 
         {currentlyPlaying && (
           <p className="mt-1.5 text-sm text-emerald-400">

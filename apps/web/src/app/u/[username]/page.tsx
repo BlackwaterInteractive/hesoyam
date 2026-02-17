@@ -110,13 +110,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     }
   }
 
-  const displayName = profile.display_name || profile.username
+  const displayName = profile.display_name || profile.username || 'User'
   const description = profile.bio
     ? `${displayName} on Hesoyam: ${profile.bio}`
     : `${displayName}'s gaming profile on Hesoyam. Track your game time and stats.`
 
   return {
-    title: `${displayName} (@${profile.username}) - Hesoyam`,
+    title: `${displayName} (@${profile.username ?? username}) - Hesoyam`,
     description,
     openGraph: {
       title: `${displayName} - Hesoyam`,
@@ -161,7 +161,7 @@ export default async function PublicProfilePage({ params }: PageProps) {
           </div>
           <h1 className="text-2xl font-bold text-zinc-50">Private Profile</h1>
           <p className="mt-2 text-sm text-zinc-400">
-            @{profile.username}&apos;s profile is private.
+            @{profile.username ?? username}&apos;s profile is private.
           </p>
           <a
             href="/"

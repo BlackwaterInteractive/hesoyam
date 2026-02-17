@@ -12,7 +12,7 @@ interface ProfileFormProps {
 }
 
 function getInitials(profile: Profile): string {
-  const name = profile.display_name || profile.username
+  const name = profile.display_name || profile.username || 'User'
   const parts = name.trim().split(/\s+/)
   if (parts.length >= 2) {
     return (parts[0][0] + parts[1][0]).toUpperCase()
@@ -22,7 +22,7 @@ function getInitials(profile: Profile): string {
 
 export function ProfileForm({ profile, email }: ProfileFormProps) {
   const [displayName, setDisplayName] = useState(profile.display_name || '')
-  const [username, setUsername] = useState(profile.username)
+  const [username, setUsername] = useState(profile.username ?? '')
   const [bio, setBio] = useState(profile.bio || '')
   const [privacy, setPrivacy] = useState<Profile['privacy']>(profile.privacy)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(profile.avatar_url)

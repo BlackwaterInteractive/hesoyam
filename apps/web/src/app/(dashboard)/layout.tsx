@@ -31,17 +31,19 @@ export default async function DashboardLayout({
     redirect('/setup-username')
   }
 
+  const username = profile.username
+
   return (
     <div className="flex h-screen bg-zinc-950">
       <Sidebar
-        username={profile.username}
+        username={username}
         displayName={profile.display_name}
         avatarUrl={profile.avatar_url}
       />
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header
-          username={profile.username}
+          username={username}
           displayName={profile.display_name}
           avatarUrl={profile.avatar_url}
         />
