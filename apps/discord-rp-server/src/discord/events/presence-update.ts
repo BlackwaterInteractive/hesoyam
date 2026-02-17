@@ -21,27 +21,77 @@ export async function handlePresenceUpdate(
     return; // Not a Hesoyam user
   }
 
+  // Log ALL raw activities from Discord for full visibility
+  const oldActivities = oldPresence?.activities.map((a) => ({
+    name: a.name,
+    type: a.type,
+    details: a.details,
+    state: a.state,
+    timestamps: a.timestamps ? {
+      start: a.timestamps.start?.toISOString() ?? null,
+      end: a.timestamps.end?.toISOString() ?? null,
+    } : null,
+    applicationId: a.applicationId,
+  })) ?? [];
+
+  const newActivities = newPresence.activities.map((a) => ({
+    name: a.name,
+    type: a.type,
+    details: a.details,
+    state: a.state,
+    timestamps: a.timestamps ? {
+      start: a.timestamps.start?.toISOString() ?? null,
+      end: a.timestamps.end?.toISOString() ?? null,
+    } : null,
+    applicationId: a.applicationId,
+  }));
+
   // Extract game activities
   const oldGame = extractPlayingActivity(oldPresence);
   const newGame = extractPlayingActivity(newPresence);
 
+  const gameChanged = !isSameGame(oldGame, newGame);
+
+  // Log EVERY presence update for monitored users (not just game changes)
+  logger.info('[PRESENCE] Raw update received', {
+    discordId,
+    oldStatus: oldPresence?.status ?? null,
+    newStatus: newPresence.status,
+    oldActivityCount: oldActivities.length,
+    newActivityCount: newActivities.length,
+    oldActivities: JSON.stringify(oldActivities),
+    newActivities: JSON.stringify(newActivities),
+    oldGame: oldGame?.name ?? null,
+    newGame: newGame?.name ?? null,
+    gameChanged,
+    hasActiveSession: sessionTracker.hasActiveSession(discordId),
+    timestamp: new Date().toISOString(),
+  });
+
   // Skip if nothing changed
-  if (isSameGame(oldGame, newGame)) {
+  if (!gameChanged) {
     return;
   }
 
-  // Log game change
-  logger.info('Presence change detected', {
+  // Determine case
+  let changeCase = 'unknown';
+  if (!oldGame && newGame) changeCase = 'GAME_START';
+  else if (oldGame && !newGame) changeCase = 'GAME_END';
+  else if (oldGame && newGame) changeCase = 'GAME_SWITCH';
+
+  logger.info(`[PRESENCE] Game change: ${changeCase}`, {
     discordId,
     oldGame: oldGame ? { name: oldGame.name, startedAt: oldGame.startedAt?.toISOString() ?? null } : null,
     newGame: newGame ? { name: newGame.name, startedAt: newGame.startedAt?.toISOString() ?? null } : null,
+    changeCase,
+    timestamp: new Date().toISOString(),
   });
 
   // Handle the game change
   try {
     await sessionTracker.handleGameChange(discordId, oldGame, newGame);
   } catch (error) {
-    logger.error('Error handling presence update', error, { discordId });
+    logger.error('[PRESENCE] Error handling presence update', error, { discordId });
   }
 }
 

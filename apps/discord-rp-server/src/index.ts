@@ -65,7 +65,13 @@ class HesoyamDiscordRPServer {
       if (this.isShuttingDown) return;
       this.isShuttingDown = true;
 
-      logger.info(`Received ${signal}, shutting down gracefully...`);
+      logger.info(`[SHUTDOWN] Received ${signal}, shutting down gracefully...`, {
+        signal,
+        activeSessions: sessionTracker.activeCount,
+        pid: process.pid,
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+      });
 
       try {
         // Close all active sessions in the database before shutting down
@@ -88,7 +94,12 @@ class HesoyamDiscordRPServer {
 
     // Handle uncaught exceptions — only shut down for truly fatal errors
     process.on('uncaughtException', (error) => {
-      logger.error('Uncaught exception', error);
+      logger.error('[CRASH] Uncaught exception', error, {
+        pid: process.pid,
+        uptime: process.uptime(),
+        activeSessions: sessionTracker.activeCount,
+        timestamp: new Date().toISOString(),
+      });
       // Only exit for non-recoverable errors, not transient network/API issues
       if (error.message?.includes('rate limit') || error.message?.includes('RateLimit')) {
         logger.warn('Rate limit error caught, continuing...');
@@ -99,7 +110,12 @@ class HesoyamDiscordRPServer {
 
     // Log unhandled rejections but do NOT crash — most are transient API errors
     process.on('unhandledRejection', (reason) => {
-      logger.error('Unhandled rejection (non-fatal)', reason);
+      logger.error('[CRASH] Unhandled rejection (non-fatal, NOT crashing)', reason, {
+        pid: process.pid,
+        uptime: process.uptime(),
+        activeSessions: sessionTracker.activeCount,
+        timestamp: new Date().toISOString(),
+      });
     });
   }
 }

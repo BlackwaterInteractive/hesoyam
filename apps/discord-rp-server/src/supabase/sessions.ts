@@ -20,7 +20,7 @@ export async function getActiveSession(userId: string): Promise<GameSessionRow |
   if (error) {
     // No active session is not an error
     if (error.code === 'PGRST116') return null;
-    logger.error('Failed to get active session', error, { userId });
+    logger.error('[DB] Failed to get active session', error, { userId });
     return null;
   }
 
@@ -41,7 +41,10 @@ async function tryReopenSession(
   gameName: string,
   discordStart: Date | null
 ): Promise<GameSessionRow | null> {
-  if (!discordStart) return null;
+  if (!discordStart) {
+    logger.info('[DB] tryReopenSession: no discordStart, skipping', { userId, gameName });
+    return null;
+  }
 
   const supabase = getSupabase();
 
@@ -57,9 +60,29 @@ async function tryReopenSession(
     .limit(1)
     .single();
 
-  if (error || !lastSession) return null;
+  if (error || !lastSession) {
+    logger.info('[DB] tryReopenSession: no recent closed session found', {
+      userId,
+      gameName,
+      discordStart: discordStart.toISOString(),
+    });
+    return null;
+  }
 
   const lastStartedAt = new Date(lastSession.started_at);
+
+  logger.info('[DB] tryReopenSession: comparing timestamps', {
+    userId,
+    gameName,
+    discordStart: discordStart.toISOString(),
+    discordStartMs: discordStart.getTime(),
+    lastSessionStartedAt: lastSession.started_at,
+    lastSessionStartedAtMs: lastStartedAt.getTime(),
+    lastSessionEndedAt: lastSession.ended_at,
+    lastSessionId: lastSession.id,
+    lastSessionDuration: lastSession.duration_secs,
+    isReopenable: discordStart.getTime() <= lastStartedAt.getTime(),
+  });
 
   // If Discord's start time is at or before the previous session's start,
   // it's the same game launch — user toggled presence, not a new session
@@ -86,14 +109,14 @@ async function tryReopenSession(
       .single();
 
     if (reopenError) {
-      logger.error('Failed to reopen session', reopenError, {
+      logger.error('[DB] tryReopenSession: FAILED to reopen', reopenError, {
         userId,
         sessionId: lastSession.id,
       });
       return null;
     }
 
-    logger.info('Session reopened (same game launch detected)', {
+    logger.info('[DB] tryReopenSession: SESSION REOPENED (same game launch)', {
       userId,
       gameName,
       sessionId: lastSession.id,
@@ -103,6 +126,12 @@ async function tryReopenSession(
     return reopened as GameSessionRow;
   }
 
+  logger.info('[DB] tryReopenSession: different launch, not reopening', {
+    userId,
+    gameName,
+    discordStart: discordStart.toISOString(),
+    lastSessionStart: lastSession.started_at,
+  });
   return null;
 }
 
@@ -115,8 +144,21 @@ export async function createSession(
 ): Promise<GameSessionRow | null> {
   const supabase = getSupabase();
 
+  logger.info('[DB] createSession: starting', {
+    userId,
+    gameName: game.name,
+    gameStartedAt: game.startedAt?.toISOString() ?? null,
+    timestamp: new Date().toISOString(),
+  });
+
   // First, close any existing session
-  await closeSession(userId);
+  const closedExisting = await closeSession(userId);
+  if (closedExisting) {
+    logger.info('[DB] createSession: closed existing session before creating new one', {
+      userId,
+      gameName: game.name,
+    });
+  }
 
   const startedAt = game.startedAt ?? new Date();
 
@@ -131,13 +173,13 @@ export async function createSession(
   try {
     const resolved = await resolveGame(game.name);
     gameId = resolved.id;
-    logger.info('Game resolved for session', {
+    logger.info('[DB] createSession: game resolved', {
       gameName: game.name,
       resolvedName: resolved.name,
       gameId: resolved.id,
     });
   } catch (error) {
-    logger.error('Game resolution failed, creating session without game_id', error, {
+    logger.error('[DB] createSession: game resolution failed', error, {
       userId,
       gameName: game.name,
     });
@@ -156,11 +198,18 @@ export async function createSession(
     .single();
 
   if (error) {
-    logger.error('Failed to create session', error, { userId, gameName: game.name });
+    logger.error('[DB] createSession: INSERT FAILED', error, { userId, gameName: game.name });
     return null;
   }
 
-  logger.info('Session created', { userId, gameName: game.name, gameId, sessionId: data.id });
+  logger.info('[DB] createSession: SESSION INSERTED', {
+    userId,
+    gameName: game.name,
+    gameId,
+    sessionId: data.id,
+    startedAt: startedAt.toISOString(),
+    timestamp: new Date().toISOString(),
+  });
   return data as GameSessionRow;
 }
 
@@ -173,18 +222,34 @@ export async function closeSession(userId: string): Promise<boolean> {
   // Get the active session
   const activeSession = await getActiveSession(userId);
   if (!activeSession) {
+    logger.info('[DB] closeSession: no active session to close', { userId });
     return false;
   }
 
   // Only close if we own this session (source = 'discord')
   if (activeSession.source !== 'discord') {
-    logger.debug('Skipping close - session owned by agent', { userId, sessionId: activeSession.id });
+    logger.info('[DB] closeSession: SKIPPED — session owned by agent', {
+      userId,
+      sessionId: activeSession.id,
+      source: activeSession.source,
+    });
     return false;
   }
 
   const now = new Date();
   const startedAt = new Date(activeSession.started_at);
   const durationSecs = Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000));
+
+  logger.info('[DB] closeSession: CLOSING session', {
+    userId,
+    sessionId: activeSession.id,
+    gameName: activeSession.game_name,
+    startedAt: activeSession.started_at,
+    endedAt: now.toISOString(),
+    durationSecs,
+    rawDurationMs: now.getTime() - startedAt.getTime(),
+    timestamp: new Date().toISOString(),
+  });
 
   const { error } = await supabase
     .from('game_sessions')
@@ -197,15 +262,19 @@ export async function closeSession(userId: string): Promise<boolean> {
     .eq('id', activeSession.id);
 
   if (error) {
-    logger.error('Failed to close session', error, { userId, sessionId: activeSession.id });
+    logger.error('[DB] closeSession: UPDATE FAILED', error, {
+      userId,
+      sessionId: activeSession.id,
+    });
     return false;
   }
 
-  logger.info('Session closed', {
+  logger.info('[DB] closeSession: SESSION CLOSED', {
     userId,
     gameName: activeSession.game_name,
     durationSecs,
     sessionId: activeSession.id,
+    timestamp: new Date().toISOString(),
   });
   return true;
 }
@@ -215,5 +284,13 @@ export async function closeSession(userId: string): Promise<boolean> {
  */
 export async function isSessionOwnedByAgent(userId: string): Promise<boolean> {
   const session = await getActiveSession(userId);
-  return session?.source === 'agent';
+  const result = session?.source === 'agent';
+  if (result) {
+    logger.info('[DB] isSessionOwnedByAgent: YES', {
+      userId,
+      sessionId: session?.id,
+      source: session?.source,
+    });
+  }
+  return result;
 }
