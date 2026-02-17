@@ -184,7 +184,7 @@ export async function closeSession(userId: string): Promise<boolean> {
 
   const now = new Date();
   const startedAt = new Date(activeSession.started_at);
-  const durationSecs = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
+  const durationSecs = Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000));
 
   const { error } = await supabase
     .from('game_sessions')

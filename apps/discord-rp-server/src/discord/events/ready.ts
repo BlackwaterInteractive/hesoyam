@@ -1,8 +1,10 @@
 import type { Client } from 'discord.js';
 import { logger } from '../../utils/logger.js';
 import { userCache } from '../../services/user-cache.js';
+import { sessionTracker } from '../../services/session-tracker.js';
 import { env } from '../../config/env.js';
 import { syncGuildMembership } from '../../services/guild-sync.js';
+import { extractGameActivity, type GameActivity } from '../../types/index.js';
 
 /**
  * Handle Discord client ready event
@@ -39,11 +41,39 @@ export async function handleReady(client: Client<true>): Promise<void> {
     await syncGuildMembership(hesoyamGuild);
   }
 
+  // Reconcile open DB sessions with current presences
+  const currentPresences = getCurrentPresences(client);
+  await sessionTracker.reconcileOnStartup(currentPresences);
+
   // Log initial presence data
   logInitialPresenceStats(client);
 
   logger.success('Discord RP Server is ready!');
   logConnectionInstructions();
+}
+
+/**
+ * Build a map of Discord ID -> GameActivity for all currently playing monitored users
+ */
+function getCurrentPresences(client: Client<true>): Map<string, GameActivity> {
+  const presences = new Map<string, GameActivity>();
+  const monitoredIds = new Set(userCache.getAllDiscordIds());
+
+  client.guilds.cache.forEach((guild) => {
+    guild.presences.cache.forEach((presence) => {
+      if (!monitoredIds.has(presence.userId)) return;
+
+      const playingActivity = presence.activities.find((a) => a.type === 0);
+      if (!playingActivity) return;
+
+      const game = extractGameActivity(playingActivity);
+      if (game) {
+        presences.set(presence.userId, game);
+      }
+    });
+  });
+
+  return presences;
 }
 
 /**

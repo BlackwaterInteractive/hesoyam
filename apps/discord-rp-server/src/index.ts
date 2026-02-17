@@ -68,17 +68,8 @@ class HesoyamDiscordRPServer {
       logger.info(`Received ${signal}, shutting down gracefully...`);
 
       try {
-        // Log active sessions that will be orphaned
-        const activeSessions = sessionTracker.getActiveSessions();
-        if (activeSessions.length > 0) {
-          logger.warn('Orphaning active sessions', {
-            count: activeSessions.length,
-            sessions: activeSessions.map((s) => ({
-              userId: s.userId,
-              game: s.gameName,
-            })),
-          });
-        }
+        // Close all active sessions in the database before shutting down
+        await sessionTracker.closeAllSessions();
 
         // Disconnect from Discord
         await disconnectFromDiscord();
