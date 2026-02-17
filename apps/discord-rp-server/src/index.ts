@@ -86,15 +86,20 @@ class HesoyamDiscordRPServer {
     process.on('SIGINT', () => shutdown('SIGINT'));
     process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-    // Handle uncaught exceptions
+    // Handle uncaught exceptions — only shut down for truly fatal errors
     process.on('uncaughtException', (error) => {
       logger.error('Uncaught exception', error);
+      // Only exit for non-recoverable errors, not transient network/API issues
+      if (error.message?.includes('rate limit') || error.message?.includes('RateLimit')) {
+        logger.warn('Rate limit error caught, continuing...');
+        return;
+      }
       shutdown('uncaughtException');
     });
 
+    // Log unhandled rejections but do NOT crash — most are transient API errors
     process.on('unhandledRejection', (reason) => {
-      logger.error('Unhandled rejection', reason);
-      shutdown('unhandledRejection');
+      logger.error('Unhandled rejection (non-fatal)', reason);
     });
   }
 }
