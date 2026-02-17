@@ -13,7 +13,7 @@ export type Database = {
         Row: {
           id: string
           email: string
-          username: string
+          username: string | null
           display_name: string | null
           avatar_url: string | null
           bio: string | null
@@ -22,13 +22,14 @@ export type Database = {
           discord_connected_at: string | null
           agent_last_seen: string | null
           in_guild: boolean
+          password_set: boolean | null
           created_at: string
           updated_at: string
         }
         Insert: {
           id: string
           email: string
-          username: string
+          username?: string | null
           display_name?: string | null
           avatar_url?: string | null
           bio?: string | null
@@ -37,13 +38,14 @@ export type Database = {
           discord_connected_at?: string | null
           agent_last_seen?: string | null
           in_guild?: boolean
+          password_set?: boolean | null
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
           email?: string
-          username?: string
+          username?: string | null
           display_name?: string | null
           avatar_url?: string | null
           bio?: string | null
@@ -52,6 +54,7 @@ export type Database = {
           discord_connected_at?: string | null
           agent_last_seen?: string | null
           in_guild?: boolean
+          password_set?: boolean | null
           created_at?: string
           updated_at?: string
         }
@@ -64,9 +67,20 @@ export type Database = {
           name: string
           slug: string
           cover_url: string | null
-          genres: string[]
+          genres: string[] | null
           developer: string | null
           release_year: number | null
+          description: string | null
+          publisher: string | null
+          platforms: string[] | null
+          screenshots: string[] | null
+          artwork_url: string | null
+          igdb_url: string | null
+          rating: number | null
+          rating_count: number | null
+          first_release_date: string | null
+          igdb_updated_at: string | null
+          metadata_source: string | null
           created_at: string
         }
         Insert: {
@@ -75,9 +89,20 @@ export type Database = {
           name: string
           slug: string
           cover_url?: string | null
-          genres?: string[]
+          genres?: string[] | null
           developer?: string | null
           release_year?: number | null
+          description?: string | null
+          publisher?: string | null
+          platforms?: string[] | null
+          screenshots?: string[] | null
+          artwork_url?: string | null
+          igdb_url?: string | null
+          rating?: number | null
+          rating_count?: number | null
+          first_release_date?: string | null
+          igdb_updated_at?: string | null
+          metadata_source?: string | null
           created_at?: string
         }
         Update: {
@@ -86,57 +111,23 @@ export type Database = {
           name?: string
           slug?: string
           cover_url?: string | null
-          genres?: string[]
+          genres?: string[] | null
           developer?: string | null
           release_year?: number | null
+          description?: string | null
+          publisher?: string | null
+          platforms?: string[] | null
+          screenshots?: string[] | null
+          artwork_url?: string | null
+          igdb_url?: string | null
+          rating?: number | null
+          rating_count?: number | null
+          first_release_date?: string | null
+          igdb_updated_at?: string | null
+          metadata_source?: string | null
           created_at?: string
         }
         Relationships: []
-      }
-      process_signatures: {
-        Row: {
-          id: string
-          process_name: string
-          game_id: string
-          reported_by: string | null
-          confirmed_count: number
-          status: 'pending' | 'approved' | 'rejected'
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          process_name: string
-          game_id: string
-          reported_by?: string | null
-          confirmed_count?: number
-          status?: 'pending' | 'approved' | 'rejected'
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          process_name?: string
-          game_id?: string
-          reported_by?: string | null
-          confirmed_count?: number
-          status?: 'pending' | 'approved' | 'rejected'
-          created_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: 'process_signatures_game_id_fkey'
-            columns: ['game_id']
-            isOneToOne: false
-            referencedRelation: 'games'
-            referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'process_signatures_reported_by_fkey'
-            columns: ['reported_by']
-            isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
-          },
-        ]
       }
       game_sessions: {
         Row: {
@@ -213,8 +204,8 @@ export type Database = {
           game_id: string
           total_time_secs?: number
           total_sessions?: number
-          first_played: string
-          last_played: string
+          first_played?: string
+          last_played?: string
           avg_session_secs?: number
         }
         Update: {
@@ -243,6 +234,27 @@ export type Database = {
           },
         ]
       }
+      system_config: {
+        Row: {
+          key: string
+          value: Json
+          expires_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          key: string
+          value: Json
+          expires_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          key?: string
+          value?: Json
+          expires_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -268,10 +280,22 @@ export type Database = {
         Args: Record<string, never>
         Returns: number
       }
+      close_orphaned_discord_sessions: {
+        Args: Record<string, never>
+        Returns: number
+      }
+      search_games_fuzzy: {
+        Args: { search_term: string }
+        Returns: {
+          id: string
+          name: string
+          slug: string
+          cover_url: string
+        }[]
+      }
     }
     Enums: {
-      privacy_level: 'public' | 'friends_only' | 'private'
-      signature_status: 'pending' | 'approved' | 'rejected'
+      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never
@@ -290,6 +314,5 @@ export type UpdateTables<T extends keyof Database['public']['Tables']> =
 // Shorthand row types
 export type Profile = Tables<'profiles'>
 export type Game = Tables<'games'>
-export type ProcessSignature = Tables<'process_signatures'>
 export type GameSession = Tables<'game_sessions'>
 export type UserGame = Tables<'user_games'>
