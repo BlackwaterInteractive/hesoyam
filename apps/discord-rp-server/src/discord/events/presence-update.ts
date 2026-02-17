@@ -21,30 +21,6 @@ export async function handlePresenceUpdate(
     return; // Not a Hesoyam user
   }
 
-  // Log raw presence data for debugging
-  const oldActivities = oldPresence?.activities.map((a) => ({
-    name: a.name,
-    type: a.type,
-    details: a.details,
-    state: a.state,
-    timestamps: a.timestamps,
-  })) ?? [];
-  const newActivities = newPresence.activities.map((a) => ({
-    name: a.name,
-    type: a.type,
-    details: a.details,
-    state: a.state,
-    timestamps: a.timestamps,
-  }));
-
-  logger.info('Raw presence update', {
-    discordId,
-    oldStatus: oldPresence?.status ?? null,
-    newStatus: newPresence.status,
-    oldActivities,
-    newActivities,
-  });
-
   // Extract game activities
   const oldGame = extractPlayingActivity(oldPresence);
   const newGame = extractPlayingActivity(newPresence);
@@ -54,15 +30,11 @@ export async function handlePresenceUpdate(
     return;
   }
 
-  // Log the change with full detail
+  // Log game change
   logger.info('Presence change detected', {
     discordId,
-    oldGame: oldGame ? { name: oldGame.name, details: oldGame.details, state: oldGame.state, startedAt: oldGame.startedAt?.toISOString() ?? null } : null,
-    newGame: newGame ? { name: newGame.name, details: newGame.details, state: newGame.state, startedAt: newGame.startedAt?.toISOString() ?? null } : null,
-    oldStatus: oldPresence?.status ?? null,
-    newStatus: newPresence.status,
-    oldActivityCount: oldActivities.length,
-    newActivityCount: newActivities.length,
+    oldGame: oldGame ? { name: oldGame.name, startedAt: oldGame.startedAt?.toISOString() ?? null } : null,
+    newGame: newGame ? { name: newGame.name, startedAt: newGame.startedAt?.toISOString() ?? null } : null,
   });
 
   // Handle the game change
