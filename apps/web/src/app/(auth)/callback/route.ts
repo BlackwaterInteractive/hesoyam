@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 async function waitForProfile(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-  retries = 2
+  retries = 5
 ) {
   for (let i = 0; i <= retries; i++) {
     const { data } = await supabase
@@ -14,7 +14,7 @@ async function waitForProfile(
       .single()
 
     if (data) return data
-    if (i < retries) await new Promise((r) => setTimeout(r, 500))
+    if (i < retries) await new Promise((r) => setTimeout(r, 600))
   }
   return null
 }
@@ -34,61 +34,46 @@ export async function GET(request: Request) {
       } = await supabase.auth.getUser()
 
       if (user) {
+        // Detect Discord auth from any available metadata field
         const isDiscordAuth =
           user.app_metadata?.provider === 'discord' ||
-          user.app_metadata?.providers?.includes('discord')
-        const discordId = user.user_metadata?.provider_id
+          user.app_metadata?.providers?.includes('discord') ||
+          user.identities?.some((i) => i.provider === 'discord')
+        const discordId =
+          user.user_metadata?.provider_id ||
+          user.identities?.find((i) => i.provider === 'discord')?.id
 
-        if (isDiscordAuth && discordId) {
-          const profile = await waitForProfile(supabase, user.id)
+        const profile = await waitForProfile(supabase, user.id)
 
-          if (!profile) {
-            return NextResponse.redirect(
-              `${origin}/login?error=profile_creation_failed`
-            )
-          }
+        if (!profile) {
+          return NextResponse.redirect(
+            `${origin}/login?error=profile_creation_failed`
+          )
+        }
 
-          // Sync Discord metadata to profile if not already set
-          if (!profile.discord_id) {
-            await supabase
-              .from('profiles')
-              .update({
-                discord_id: discordId,
-                discord_connected_at: new Date().toISOString(),
-                display_name:
-                  user.user_metadata?.global_name ||
-                  user.user_metadata?.full_name ||
-                  user.user_metadata?.name ||
-                  null,
-                avatar_url: user.user_metadata?.avatar_url || null,
-              })
-              .eq('id', user.id)
-          }
+        // Sync Discord metadata to profile if not already set
+        if (isDiscordAuth && discordId && !profile.discord_id) {
+          await supabase
+            .from('profiles')
+            .update({
+              discord_id: discordId,
+              discord_connected_at: new Date().toISOString(),
+              display_name:
+                user.user_metadata?.custom_claims?.global_name ||
+                user.user_metadata?.full_name ||
+                user.user_metadata?.name ||
+                null,
+              avatar_url: user.user_metadata?.avatar_url || null,
+            })
+            .eq('id', user.id)
+        }
 
-          if (!profile.username) {
-            return NextResponse.redirect(`${origin}/setup-username`)
-          }
+        if (!profile.username) {
+          return NextResponse.redirect(`${origin}/setup-username`)
+        }
 
-          if (!profile.password_set) {
-            return NextResponse.redirect(`${origin}/setup-password`)
-          }
-        } else {
-          // Non-Discord auth fallback: check username
-          const profile = await waitForProfile(supabase, user.id)
-
-          if (!profile) {
-            return NextResponse.redirect(
-              `${origin}/login?error=profile_creation_failed`
-            )
-          }
-
-          if (!profile.username) {
-            return NextResponse.redirect(`${origin}/setup-username`)
-          }
-
-          if (!profile.password_set) {
-            return NextResponse.redirect(`${origin}/setup-password`)
-          }
+        if (!profile.password_set) {
+          return NextResponse.redirect(`${origin}/setup-password`)
         }
       }
 
