@@ -1,40 +1,46 @@
 import type { Guild } from 'discord.js';
 import { getSupabase } from '../supabase/client.js';
-import { userCache } from './user-cache.js';
 import { logger } from '../utils/logger.js';
 
 /**
- * Sync guild membership status for all tracked users on startup.
- * Fetches all guild members and cross-references with the user cache,
- * then bulk-updates in_guild for all profiles with a discord_id.
+ * Sync guild membership status for all profiles with a discord_id.
+ * Queries the DB directly (no cache dependency) and cross-references
+ * with actual guild members to bulk-update in_guild.
  */
 export async function syncGuildMembership(guild: Guild): Promise<void> {
-  const monitoredIds = userCache.getAllDiscordIds();
-  if (monitoredIds.length === 0) {
-    logger.info('No monitored users to sync guild membership for');
-    return;
-  }
-
   try {
-    // Fetch all guild members (this may paginate internally for large guilds)
+    const supabase = getSupabase();
+
+    // Get all profiles that have a discord_id
+    const { data: profiles, error: fetchError } = await supabase
+      .from('profiles')
+      .select('id, discord_id')
+      .not('discord_id', 'is', null);
+
+    if (fetchError) {
+      logger.error('Failed to fetch profiles for guild sync', fetchError);
+      return;
+    }
+
+    if (!profiles || profiles.length === 0) {
+      logger.info('No profiles with discord_id to sync');
+      return;
+    }
+
+    // Fetch all guild members
     const members = await guild.members.fetch();
     const guildMemberIds = new Set(members.map((m) => m.id));
 
     const inGuildIds: string[] = [];
     const notInGuildIds: string[] = [];
 
-    for (const discordId of monitoredIds) {
-      const userId = userCache.getUserId(discordId);
-      if (!userId) continue;
-
-      if (guildMemberIds.has(discordId)) {
-        inGuildIds.push(userId);
+    for (const profile of profiles) {
+      if (guildMemberIds.has(profile.discord_id)) {
+        inGuildIds.push(profile.id);
       } else {
-        notInGuildIds.push(userId);
+        notInGuildIds.push(profile.id);
       }
     }
-
-    const supabase = getSupabase();
 
     // Bulk update in_guild = true for members in guild
     if (inGuildIds.length > 0) {
