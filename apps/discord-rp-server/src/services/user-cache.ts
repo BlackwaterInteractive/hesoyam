@@ -89,6 +89,15 @@ class UserCache {
   }
 
   /**
+   * Add a user to the cache (used as fallback when realtime misses an event)
+   */
+  addUser(user: MonitoredUser): void {
+    if (!this.users.has(user.discordId)) {
+      this.users.set(user.discordId, user);
+    }
+  }
+
+  /**
    * Get a monitored user by their Discord ID
    */
   get(discordId: string): MonitoredUser | undefined {
