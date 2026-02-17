@@ -16,13 +16,6 @@ export async function handlePresenceUpdate(
 
   const discordId = newPresence.userId;
 
-  // Log ALL presence events for debugging
-  logger.info('Presence event received', {
-    discordId,
-    isMonitored: userCache.has(discordId),
-    activities: newPresence.activities.map((a) => ({ name: a.name, type: a.type })),
-  });
-
   // Check if this user is being monitored
   if (!userCache.has(discordId)) {
     return; // Not a Hesoyam user
