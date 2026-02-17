@@ -39,19 +39,18 @@ class UserCache {
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'profiles',
         },
         (payload) => {
-          const oldRow = payload.old as { discord_id?: string };
           const newRow = payload.new as {
             id: string;
             discord_id?: string;
             agent_last_seen?: string;
           };
 
-          // New Discord connection (skip if already in cache)
+          // New Discord connection via INSERT or UPDATE (skip if already in cache)
           if (newRow.discord_id && !this.users.has(newRow.discord_id)) {
             const user: MonitoredUser = {
               id: newRow.id,
@@ -64,6 +63,7 @@ class UserCache {
             logger.info('New Discord connection added to cache', {
               discordId: newRow.discord_id,
               userId: newRow.id,
+              event: payload.eventType,
             });
 
             // Check guild membership for the new user
