@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { getURL } from '@/lib/utils/get-url'
 
 export default function SignupPage() {
   const [loading, setLoading] = useState(false)
@@ -18,7 +17,7 @@ export default function SignupPage() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'discord',
       options: {
-        redirectTo: `${getURL()}callback`,
+        redirectTo: `${window.location.origin}/callback`,
         scopes: 'identify email guilds.members.read',
       },
     })
