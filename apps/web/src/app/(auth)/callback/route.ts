@@ -24,6 +24,18 @@ export async function GET(request: Request) {
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/dashboard'
 
+  const forwardedHost = request.headers.get('x-forwarded-host')
+  const isLocalEnv = process.env.NODE_ENV === 'development'
+  let redirectBase: string
+  if (isLocalEnv) {
+    redirectBase = origin
+  } else if (forwardedHost) {
+    const forwardedProto = request.headers.get('x-forwarded-proto') ?? 'https'
+    redirectBase = `${forwardedProto}://${forwardedHost}`
+  } else {
+    redirectBase = origin
+  }
+
   if (code) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
@@ -47,7 +59,7 @@ export async function GET(request: Request) {
 
         if (!profile) {
           return NextResponse.redirect(
-            `${origin}/login?error=profile_creation_failed`
+            `${redirectBase}/login?error=profile_creation_failed`
           )
         }
 
@@ -69,18 +81,18 @@ export async function GET(request: Request) {
         }
 
         if (!profile.username) {
-          return NextResponse.redirect(`${origin}/setup-username`)
+          return NextResponse.redirect(`${redirectBase}/setup-username`)
         }
 
         if (!profile.password_set) {
-          return NextResponse.redirect(`${origin}/setup-password`)
+          return NextResponse.redirect(`${redirectBase}/setup-password`)
         }
       }
 
-      return NextResponse.redirect(`${origin}${next}`)
+      return NextResponse.redirect(`${redirectBase}${next}`)
     }
   }
 
   // If code exchange fails, redirect to login with error
-  return NextResponse.redirect(`${origin}/login`)
+  return NextResponse.redirect(`${redirectBase}/login`)
 }
