@@ -45,6 +45,9 @@ export async function handleReady(client: Client<true>): Promise<void> {
   const currentPresences = getCurrentPresences(client);
   await sessionTracker.reconcileOnStartup(currentPresences);
 
+  // Start periodic DB keepalive for active sessions
+  sessionTracker.startKeepalive();
+
   // Log initial presence data
   logInitialPresenceStats(client);
 

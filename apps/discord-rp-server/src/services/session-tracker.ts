@@ -5,6 +5,7 @@ import {
   createSession,
   closeSession,
   isSessionOwnedByAgent,
+  touchActiveSessions,
 } from '../supabase/sessions.js';
 import {
   broadcastGameStart,
@@ -18,6 +19,9 @@ import type { GameActivity, ActiveSession } from '../types/index.js';
 // Grace period before actually closing a session (handles Discord presence flickers)
 const END_GRACE_MS = 30_000;
 
+// How often to touch updated_at on active sessions (must be < 6min stale threshold)
+const DB_KEEPALIVE_MS = 4 * 60_000; // 4 minutes
+
 /**
  * Tracks active sessions for Discord-monitored users
  */
@@ -29,6 +33,27 @@ class SessionTracker {
   // Pending end timers — if a game "ends" we wait before actually closing
   // Maps Discord ID -> timer handle
   private pendingEnds: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
+  // DB keepalive interval handle
+  private keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Start the periodic DB keepalive that touches updated_at on active sessions.
+   * Must be called after initialization (e.g. in handleReady).
+   */
+  startKeepalive(): void {
+    if (this.keepaliveInterval) return;
+
+    this.keepaliveInterval = setInterval(async () => {
+      const sessions = Array.from(this.activeSessions.values());
+      if (sessions.length === 0) return;
+
+      const sessionIds = sessions.map((s) => s.id);
+      await touchActiveSessions(sessionIds);
+    }, DB_KEEPALIVE_MS);
+
+    logger.info('[SESSION] DB keepalive started', { intervalMs: DB_KEEPALIVE_MS });
+  }
 
   /**
    * Handle a game change for a user
@@ -387,6 +412,12 @@ class SessionTracker {
           gameName: session.gameName,
         });
       }
+    }
+
+    // Clear keepalive interval
+    if (this.keepaliveInterval) {
+      clearInterval(this.keepaliveInterval);
+      this.keepaliveInterval = null;
     }
 
     // Clear pending end timers

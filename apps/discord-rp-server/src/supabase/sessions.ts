@@ -300,6 +300,32 @@ export async function closeSession(userId: string): Promise<boolean> {
 }
 
 /**
+ * Touch the updated_at timestamp on active sessions to prevent stale session cleanup.
+ * This acts as a DB-level keepalive.
+ */
+export async function touchActiveSessions(sessionIds: string[]): Promise<void> {
+  if (sessionIds.length === 0) return;
+
+  const supabase = getSupabase();
+
+  const { error } = await supabase
+    .from('game_sessions')
+    .update({ updated_at: new Date().toISOString() })
+    .in('id', sessionIds)
+    .is('ended_at', null);
+
+  if (error) {
+    logger.error('[DB] touchActiveSessions: FAILED', error, { sessionIds });
+  } else {
+    logger.info('[DB] touchActiveSessions: keepalive sent', {
+      count: sessionIds.length,
+      sessionIds,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
+/**
  * Check if a session is owned by the agent (not Discord)
  */
 export async function isSessionOwnedByAgent(userId: string): Promise<boolean> {

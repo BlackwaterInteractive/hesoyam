@@ -20,14 +20,6 @@ export default async function DashboardPage() {
 
   if (!user) return null
 
-  // Clean up any stale sessions (no update for 6+ minutes)
-  // This runs on dashboard load to ensure fresh data
-  try {
-    await supabase.rpc('close_stale_sessions')
-  } catch {
-    // Ignore errors - cleanup is best-effort
-  }
-
   // Fetch profile for welcome message
   const { data: profile } = await supabase
     .from('profiles')
