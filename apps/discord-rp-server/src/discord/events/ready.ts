@@ -48,6 +48,27 @@ export async function handleReady(client: Client<true>): Promise<void> {
   // Log initial presence data
   logInitialPresenceStats(client);
 
+  // Start periodic status heartbeat (every 60s) to track bot health
+  setInterval(() => {
+    const activeSessions = sessionTracker.getActiveSessions();
+    logger.info('[HEARTBEAT] Bot status', {
+      uptime: Math.floor(process.uptime()),
+      activeSessions: activeSessions.length,
+      sessions: activeSessions.map((s) => ({
+        discordId: s.discordId,
+        gameName: s.gameName,
+        sessionId: s.id,
+        startedAt: s.startedAt.toISOString(),
+        durationSecs: Math.floor((Date.now() - s.startedAt.getTime()) / 1000),
+        lastUpdate: s.lastUpdate.toISOString(),
+        lastUpdateAgoSecs: Math.floor((Date.now() - s.lastUpdate.getTime()) / 1000),
+      })),
+      wsStatus: client.ws.status,
+      wsPing: client.ws.ping,
+      timestamp: new Date().toISOString(),
+    });
+  }, 60_000);
+
   logger.success('Discord RP Server is ready!');
   logConnectionInstructions();
 }

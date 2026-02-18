@@ -52,9 +52,13 @@ export async function handlePresenceUpdate(
 
   const gameChanged = !isSameGame(oldGame, newGame);
 
+  // Flag if oldPresence is null — indicates a possible gateway reconnect
+  const isOldPresenceNull = oldPresence === null;
+
   // Log EVERY presence update for monitored users (not just game changes)
   logger.info('[PRESENCE] Raw update received', {
     discordId,
+    oldPresenceNull: isOldPresenceNull,
     oldStatus: oldPresence?.status ?? null,
     newStatus: newPresence.status,
     oldActivityCount: oldActivities.length,
@@ -68,8 +72,27 @@ export async function handlePresenceUpdate(
     timestamp: new Date().toISOString(),
   });
 
+  // Warn loudly if old presence is null and we have an active session — gateway reconnect scenario
+  if (isOldPresenceNull && sessionTracker.hasActiveSession(discordId)) {
+    logger.warn('[PRESENCE] ⚠️ OLD PRESENCE IS NULL but active session exists — possible gateway reconnect', {
+      discordId,
+      newGame: newGame?.name ?? null,
+      activeSessionGame: sessionTracker.getActiveSessionGame(discordId),
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   // Skip if nothing changed
   if (!gameChanged) {
+    // Log same-game heartbeats at debug level to track that we ARE receiving updates
+    if (oldGame && newGame) {
+      logger.info('[PRESENCE] Same game heartbeat (skipping handleGameChange)', {
+        discordId,
+        gameName: newGame.name,
+        hasActiveSession: sessionTracker.hasActiveSession(discordId),
+        timestamp: new Date().toISOString(),
+      });
+    }
     return;
   }
 

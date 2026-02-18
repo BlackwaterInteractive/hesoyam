@@ -91,11 +91,25 @@ class SessionTracker {
           return;
         }
       }
-      logger.info('[SESSION] Case 1: GAME_START — calling handleGameStart', {
-        discordId,
-        gameName: newGame.name,
-        timestamp: new Date().toISOString(),
-      });
+      // Check if we already have a local session for this game — gateway reconnect detection
+      const existingLocal = this.activeSessions.get(discordId);
+      if (existingLocal) {
+        logger.warn('[SESSION] ⚠️ Case 1: GAME_START but LOCAL SESSION ALREADY EXISTS', {
+          discordId,
+          newGame: newGame.name,
+          existingSessionId: existingLocal.id,
+          existingGameName: existingLocal.gameName,
+          existingStartedAt: existingLocal.startedAt.toISOString(),
+          sameGame: existingLocal.gameName === newGame.name,
+          timestamp: new Date().toISOString(),
+        });
+      } else {
+        logger.info('[SESSION] Case 1: GAME_START — calling handleGameStart (no existing local session)', {
+          discordId,
+          gameName: newGame.name,
+          timestamp: new Date().toISOString(),
+        });
+      }
       await this.handleGameStart(userId, discordId, newGame);
     }
     // Case 2: Game ended (game before, no game now)
@@ -158,13 +172,20 @@ class SessionTracker {
       timestamp: new Date().toISOString(),
     });
 
+    const graceStartedAt = new Date();
     const timer = setTimeout(async () => {
       this.pendingEnds.delete(discordId);
-      logger.info('[SESSION] GRACE PERIOD EXPIRED — closing session now', {
+      const sessionDuration = activeSession
+        ? Math.floor((Date.now() - activeSession.startedAt.getTime()) / 1000)
+        : null;
+      logger.warn('[SESSION] ⚠️ GRACE PERIOD EXPIRED — closing session now', {
         discordId,
         userId,
         gameName: activeSession?.gameName ?? 'unknown',
         sessionId: activeSession?.id ?? null,
+        sessionDurationSecs: sessionDuration,
+        graceStartedAt: graceStartedAt.toISOString(),
+        graceDurationMs: Date.now() - graceStartedAt.getTime(),
         timestamp: new Date().toISOString(),
       });
       await this.handleGameEnd(userId, discordId);
@@ -262,13 +283,19 @@ class SessionTracker {
   private async handleGameEnd(userId: string, discordId: string): Promise<void> {
     const localSession = this.activeSessions.get(discordId);
 
-    logger.info('[SESSION] handleGameEnd: closing session', {
+    const localDuration = localSession
+      ? Math.floor((Date.now() - localSession.startedAt.getTime()) / 1000)
+      : null;
+    logger.warn('[SESSION] handleGameEnd: CLOSING session', {
       userId,
       discordId,
       localSessionExists: !!localSession,
       localSessionId: localSession?.id ?? null,
       localSessionGame: localSession?.gameName ?? null,
       localSessionStartedAt: localSession?.startedAt?.toISOString() ?? null,
+      localSessionDurationSecs: localDuration,
+      activeSessCount: this.activeSessions.size,
+      pendingEndCount: this.pendingEnds.size,
       timestamp: new Date().toISOString(),
     });
 
@@ -480,6 +507,13 @@ class SessionTracker {
    */
   hasActiveSession(discordId: string): boolean {
     return this.activeSessions.has(discordId);
+  }
+
+  /**
+   * Get the game name of the active session for a user (for logging)
+   */
+  getActiveSessionGame(discordId: string): string | null {
+    return this.activeSessions.get(discordId)?.gameName ?? null;
   }
 }
 

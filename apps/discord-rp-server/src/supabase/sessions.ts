@@ -151,10 +151,27 @@ export async function createSession(
     timestamp: new Date().toISOString(),
   });
 
+  // Check for existing active session BEFORE closing — log full details
+  const existingBefore = await getActiveSession(userId);
+  if (existingBefore) {
+    const existingDuration = Math.floor((Date.now() - new Date(existingBefore.started_at).getTime()) / 1000);
+    logger.warn('[DB] createSession: ⚠️ CLOSING EXISTING SESSION to create new one', {
+      userId,
+      newGameName: game.name,
+      existingSessionId: existingBefore.id,
+      existingGameName: existingBefore.game_name,
+      existingStartedAt: existingBefore.started_at,
+      existingSource: existingBefore.source,
+      existingDurationSoFar: existingDuration,
+      sameGame: existingBefore.game_name === game.name,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   // First, close any existing session
   const closedExisting = await closeSession(userId);
   if (closedExisting) {
-    logger.info('[DB] createSession: closed existing session before creating new one', {
+    logger.info('[DB] createSession: existing session closed', {
       userId,
       gameName: game.name,
     });
@@ -240,7 +257,9 @@ export async function closeSession(userId: string): Promise<boolean> {
   const startedAt = new Date(activeSession.started_at);
   const durationSecs = Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000));
 
-  logger.info('[DB] closeSession: CLOSING session', {
+  // Log the full stack trace to identify WHO is closing this session
+  const closeStack = new Error().stack?.split('\n').slice(1, 5).map(l => l.trim()).join(' <- ');
+  logger.warn('[DB] closeSession: CLOSING session', {
     userId,
     sessionId: activeSession.id,
     gameName: activeSession.game_name,
@@ -248,6 +267,7 @@ export async function closeSession(userId: string): Promise<boolean> {
     endedAt: now.toISOString(),
     durationSecs,
     rawDurationMs: now.getTime() - startedAt.getTime(),
+    calledFrom: closeStack,
     timestamp: new Date().toISOString(),
   });
 
