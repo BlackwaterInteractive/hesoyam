@@ -39,52 +39,21 @@ export function createDiscordClient(): Client {
     logger.warn('Discord client warning', { warning });
   });
 
-  // Shard lifecycle events — critical for diagnosing session issues
+  // Shard lifecycle events
   discordClient.on('shardDisconnect', (event, shardId) => {
-    logger.warn('[SHARD] DISCONNECTED', {
-      shardId,
-      code: event.code,
-      reason: event.reason,
-      wasClean: event.wasClean,
-      timestamp: new Date().toISOString(),
-    });
+    logger.warn('[SHARD] Disconnected', { shardId, code: event.code });
   });
 
   discordClient.on('shardReconnecting', (shardId) => {
-    logger.warn('[SHARD] RECONNECTING', {
-      shardId,
-      timestamp: new Date().toISOString(),
-    });
+    logger.warn('[SHARD] Reconnecting', { shardId });
   });
 
   discordClient.on('shardResume', (shardId, replayedEvents) => {
-    logger.info('[SHARD] RESUMED', {
-      shardId,
-      replayedEvents,
-      timestamp: new Date().toISOString(),
-    });
-  });
-
-  discordClient.on('shardReady', (shardId, unavailableGuilds) => {
-    logger.info('[SHARD] READY (full reconnect)', {
-      shardId,
-      unavailableGuilds: unavailableGuilds?.size ?? 0,
-      timestamp: new Date().toISOString(),
-    });
+    logger.info('[SHARD] Resumed', { shardId, replayedEvents });
   });
 
   discordClient.on('shardError', (error, shardId) => {
-    logger.error('[SHARD] ERROR', error, {
-      shardId,
-      timestamp: new Date().toISOString(),
-    });
-  });
-
-  // Invalidated session — bot must do a full reconnect
-  discordClient.on('invalidated', () => {
-    logger.error('[SHARD] SESSION INVALIDATED — full reconnect required', undefined, {
-      timestamp: new Date().toISOString(),
-    });
+    logger.error('[SHARD] Error', error, { shardId });
   });
 
   return discordClient;

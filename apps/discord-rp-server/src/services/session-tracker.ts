@@ -64,28 +64,7 @@ class SessionTracker {
     newGame: GameActivity | null
   ): Promise<void> {
     const userId = userCache.getUserId(discordId);
-    if (!userId) {
-      logger.info('[SESSION] User not in cache, skipping', { discordId });
-      return;
-    }
-
-    const localSession = this.activeSessions.get(discordId);
-    const hasPendingEnd = this.pendingEnds.has(discordId);
-
-    logger.info('[SESSION] handleGameChange called', {
-      discordId,
-      userId,
-      oldGame: oldGame?.name ?? null,
-      newGame: newGame?.name ?? null,
-      localSessionExists: !!localSession,
-      localSessionGame: localSession?.gameName ?? null,
-      localSessionId: localSession?.id ?? null,
-      localSessionStartedAt: localSession?.startedAt?.toISOString() ?? null,
-      hasPendingEnd,
-      activeSessCount: this.activeSessions.size,
-      pendingEndCount: this.pendingEnds.size,
-      timestamp: new Date().toISOString(),
-    });
+    if (!userId) return;
 
     // Check if agent is active (using fresh DB check for accuracy)
     const agentActive = await isAgentActive(userId, env.agentTimeoutMs);
@@ -103,76 +82,28 @@ class SessionTracker {
     if (!oldGame && newGame) {
       // Cancel any pending end — the game came back (presence flicker)
       if (this.cancelPendingEnd(discordId)) {
-        logger.info('[SESSION] FLICKER RECOVERY: Game reappeared, cancelled pending close', {
-          discordId,
-          gameName: newGame.name,
-          localSessionId: localSession?.id ?? null,
-          timestamp: new Date().toISOString(),
-        });
-        // Update the local session's lastUpdate
+        logger.info('[SESSION] Flicker recovery: game reappeared', { discordId, gameName: newGame.name });
         const active = this.activeSessions.get(discordId);
         if (active) {
           active.lastUpdate = new Date();
           return;
         }
       }
-      // Check if we already have a local session for this game — gateway reconnect detection
-      const existingLocal = this.activeSessions.get(discordId);
-      if (existingLocal) {
-        logger.warn('[SESSION] ⚠️ Case 1: GAME_START but LOCAL SESSION ALREADY EXISTS', {
-          discordId,
-          newGame: newGame.name,
-          existingSessionId: existingLocal.id,
-          existingGameName: existingLocal.gameName,
-          existingStartedAt: existingLocal.startedAt.toISOString(),
-          sameGame: existingLocal.gameName === newGame.name,
-          timestamp: new Date().toISOString(),
-        });
-      } else {
-        logger.info('[SESSION] Case 1: GAME_START — calling handleGameStart (no existing local session)', {
-          discordId,
-          gameName: newGame.name,
-          timestamp: new Date().toISOString(),
-        });
-      }
       await this.handleGameStart(userId, discordId, newGame);
     }
     // Case 2: Game ended (game before, no game now)
     else if (oldGame && !newGame) {
-      logger.info('[SESSION] Case 2: GAME_END — scheduling end with grace period', {
-        discordId,
-        gameName: oldGame.name,
-        graceMs: END_GRACE_MS,
-        localSessionId: localSession?.id ?? null,
-        timestamp: new Date().toISOString(),
-      });
       this.scheduleGameEnd(userId, discordId);
     }
     // Case 3: Game switched (different game)
     else if (oldGame && newGame && oldGame.name !== newGame.name) {
-      logger.info('[SESSION] Case 3: GAME_SWITCH — closing old, starting new', {
-        discordId,
-        oldGame: oldGame.name,
-        newGame: newGame.name,
-        localSessionId: localSession?.id ?? null,
-        timestamp: new Date().toISOString(),
-      });
-      // Switching games — immediately close old, start new
       this.cancelPendingEnd(discordId);
       await this.handleGameEnd(userId, discordId);
       await this.handleGameStart(userId, discordId, newGame);
     }
     // Case 4: Same game continues (heartbeat)
     else if (oldGame && newGame && oldGame.name === newGame.name) {
-      // Game still active — cancel any pending end just in case
-      const hadPending = this.cancelPendingEnd(discordId);
-      if (hadPending) {
-        logger.info('[SESSION] Case 4: HEARTBEAT — cancelled pending end (flicker)', {
-          discordId,
-          gameName: newGame.name,
-          timestamp: new Date().toISOString(),
-        });
-      }
+      this.cancelPendingEnd(discordId);
       await this.handleHeartbeat(userId, discordId, newGame);
     }
   }
@@ -182,36 +113,20 @@ class SessionTracker {
    */
   private scheduleGameEnd(userId: string, discordId: string): void {
     // Don't double-schedule
-    if (this.pendingEnds.has(discordId)) {
-      logger.info('[SESSION] scheduleGameEnd: already pending, skipping', { discordId });
-      return;
-    }
+    if (this.pendingEnds.has(discordId)) return;
 
     const activeSession = this.activeSessions.get(discordId);
-    logger.info('[SESSION] scheduleGameEnd: starting grace timer', {
+    logger.info('[SESSION] Scheduling end with grace period', {
       discordId,
-      userId,
       gameName: activeSession?.gameName ?? 'unknown',
-      sessionId: activeSession?.id ?? null,
       graceMs: END_GRACE_MS,
-      timestamp: new Date().toISOString(),
     });
 
-    const graceStartedAt = new Date();
     const timer = setTimeout(async () => {
       this.pendingEnds.delete(discordId);
-      const sessionDuration = activeSession
-        ? Math.floor((Date.now() - activeSession.startedAt.getTime()) / 1000)
-        : null;
-      logger.warn('[SESSION] ⚠️ GRACE PERIOD EXPIRED — closing session now', {
+      logger.info('[SESSION] Grace period expired, closing session', {
         discordId,
-        userId,
         gameName: activeSession?.gameName ?? 'unknown',
-        sessionId: activeSession?.id ?? null,
-        sessionDurationSecs: sessionDuration,
-        graceStartedAt: graceStartedAt.toISOString(),
-        graceDurationMs: Date.now() - graceStartedAt.getTime(),
-        timestamp: new Date().toISOString(),
       });
       await this.handleGameEnd(userId, discordId);
     }, END_GRACE_MS);
@@ -227,10 +142,6 @@ class SessionTracker {
     if (timer) {
       clearTimeout(timer);
       this.pendingEnds.delete(discordId);
-      logger.info('[SESSION] cancelPendingEnd: timer cancelled', {
-        discordId,
-        timestamp: new Date().toISOString(),
-      });
       return true;
     }
     return false;
@@ -244,37 +155,16 @@ class SessionTracker {
     discordId: string,
     game: GameActivity
   ): Promise<void> {
-    logger.info('[SESSION] handleGameStart: checking if agent owns session', {
-      userId,
-      discordId,
-      gameName: game.name,
-      timestamp: new Date().toISOString(),
-    });
-
     // Check if session already owned by agent
     if (await isSessionOwnedByAgent(userId)) {
-      logger.info('[SESSION] handleGameStart: SKIPPED — session owned by agent', {
-        userId,
-        gameName: game.name,
-      });
+      logger.info('[SESSION] Skipped — session owned by agent', { userId, gameName: game.name });
       return;
     }
 
     // Create session in database
-    logger.info('[SESSION] handleGameStart: creating DB session', {
-      userId,
-      discordId,
-      gameName: game.name,
-      gameStartedAt: game.startedAt?.toISOString() ?? null,
-      timestamp: new Date().toISOString(),
-    });
-
     const session = await createSession(userId, game);
     if (!session) {
-      logger.error('[SESSION] handleGameStart: FAILED to create session', undefined, {
-        userId,
-        gameName: game.name,
-      });
+      logger.error('[SESSION] Failed to create session', undefined, { userId, gameName: game.name });
       return;
     }
 
@@ -288,14 +178,10 @@ class SessionTracker {
       lastUpdate: new Date(),
     });
 
-    logger.info('[SESSION] handleGameStart: SESSION CREATED AND TRACKED', {
+    logger.info('[SESSION] Session created', {
       userId,
-      discordId,
       gameName: game.name,
       sessionId: session.id,
-      dbStartedAt: session.started_at,
-      activeSessCount: this.activeSessions.size,
-      timestamp: new Date().toISOString(),
     });
 
     // Broadcast presence
@@ -308,39 +194,17 @@ class SessionTracker {
   private async handleGameEnd(userId: string, discordId: string): Promise<void> {
     const localSession = this.activeSessions.get(discordId);
 
-    const localDuration = localSession
-      ? Math.floor((Date.now() - localSession.startedAt.getTime()) / 1000)
-      : null;
-    logger.warn('[SESSION] handleGameEnd: CLOSING session', {
-      userId,
-      discordId,
-      localSessionExists: !!localSession,
-      localSessionId: localSession?.id ?? null,
-      localSessionGame: localSession?.gameName ?? null,
-      localSessionStartedAt: localSession?.startedAt?.toISOString() ?? null,
-      localSessionDurationSecs: localDuration,
-      activeSessCount: this.activeSessions.size,
-      pendingEndCount: this.pendingEnds.size,
-      timestamp: new Date().toISOString(),
-    });
-
     // Close session in database
     const closed = await closeSession(userId);
 
     // Remove from local tracking
     this.activeSessions.delete(discordId);
 
-    logger.info('[SESSION] handleGameEnd: result', {
-      userId,
-      discordId,
-      closed,
-      gameName: localSession?.gameName ?? null,
-      activeSessCount: this.activeSessions.size,
-      timestamp: new Date().toISOString(),
-    });
-
     if (closed) {
-      // Broadcast presence end
+      logger.info('[SESSION] Session closed', {
+        userId,
+        gameName: localSession?.gameName ?? null,
+      });
       await broadcastGameEnd(userId);
     }
   }
@@ -356,12 +220,6 @@ class SessionTracker {
     const activeSession = this.activeSessions.get(discordId);
     if (!activeSession) {
       // Session not tracked locally, might have started before bot
-      logger.info('[SESSION] handleHeartbeat: no local session, creating one', {
-        userId,
-        discordId,
-        gameName: game.name,
-        timestamp: new Date().toISOString(),
-      });
       await this.handleGameStart(userId, discordId, game);
       return;
     }
@@ -382,32 +240,15 @@ class SessionTracker {
    */
   async closeAllSessions(): Promise<void> {
     const sessions = Array.from(this.activeSessions.values());
-    if (sessions.length === 0) {
-      logger.info('[SESSION] closeAllSessions: no active sessions to close');
-      return;
-    }
+    if (sessions.length === 0) return;
 
-    logger.info('[SESSION] closeAllSessions: SHUTTING DOWN — closing all sessions', {
-      count: sessions.length,
-      sessions: sessions.map((s) => ({
-        id: s.id,
-        userId: s.userId,
-        gameName: s.gameName,
-        startedAt: s.startedAt.toISOString(),
-      })),
-      timestamp: new Date().toISOString(),
-    });
+    logger.info('[SESSION] Shutting down — closing all sessions', { count: sessions.length });
 
     for (const session of sessions) {
       try {
         await closeSession(session.userId);
-        logger.info('[SESSION] closeAllSessions: session closed', {
-          userId: session.userId,
-          gameName: session.gameName,
-          sessionId: session.id,
-        });
       } catch (error) {
-        logger.error('[SESSION] closeAllSessions: FAILED to close session', error, {
+        logger.error('[SESSION] Failed to close session on shutdown', error, {
           userId: session.userId,
           gameName: session.gameName,
         });
@@ -421,17 +262,11 @@ class SessionTracker {
     }
 
     // Clear pending end timers
-    const pendingCount = this.pendingEnds.size;
     for (const [discordId, timer] of this.pendingEnds) {
       clearTimeout(timer);
     }
     this.pendingEnds.clear();
     this.activeSessions.clear();
-
-    logger.info('[SESSION] closeAllSessions: complete', {
-      closedCount: sessions.length,
-      pendingEndsCleared: pendingCount,
-    });
   }
 
   /**
@@ -456,18 +291,13 @@ class SessionTracker {
     }
 
     if (openSessions.length === 0) {
-      logger.info('[SESSION] reconcileOnStartup: no open sessions to reconcile');
+      logger.info('[SESSION] No open sessions to reconcile');
       return;
     }
 
-    logger.info('[SESSION] reconcileOnStartup: reconciling', {
+    logger.info('[SESSION] Reconciling open sessions', {
       openSessionCount: openSessions.length,
       currentPresenceCount: currentPresences.size,
-      presences: Array.from(currentPresences.entries()).map(([did, game]) => ({
-        discordId: did,
-        gameName: game.name,
-      })),
-      timestamp: new Date().toISOString(),
     });
 
     for (const session of openSessions) {
@@ -479,10 +309,9 @@ class SessionTracker {
       if (!discordId) {
         // User not in cache, close the orphaned session
         await closeSession(session.user_id);
-        logger.info('[SESSION] reconcileOnStartup: closed orphaned session (user not in cache)', {
+        logger.info('[SESSION] Closed orphaned session (user not in cache)', {
           userId: session.user_id,
           gameName: session.game_name,
-          sessionId: session.id,
         });
         continue;
       }
@@ -499,8 +328,7 @@ class SessionTracker {
           startedAt: new Date(session.started_at),
           lastUpdate: new Date(),
         });
-        logger.info('[SESSION] reconcileOnStartup: ADOPTED session', {
-          userId: session.user_id,
+        logger.info('[SESSION] Adopted session', {
           discordId,
           gameName: session.game_name,
           sessionId: session.id,
@@ -508,12 +336,9 @@ class SessionTracker {
       } else {
         // User stopped playing or switched games — close the old session
         await closeSession(session.user_id);
-        logger.info('[SESSION] reconcileOnStartup: closed stale session', {
-          userId: session.user_id,
-          discordId,
+        logger.info('[SESSION] Closed stale session', {
           gameName: session.game_name,
           currentGame: currentGame?.name ?? null,
-          sessionId: session.id,
         });
       }
     }
@@ -541,7 +366,7 @@ class SessionTracker {
   }
 
   /**
-   * Get the game name of the active session for a user (for logging)
+   * Get the game name of the active session for a user
    */
   getActiveSessionGame(discordId: string): string | null {
     return this.activeSessions.get(discordId)?.gameName ?? null;

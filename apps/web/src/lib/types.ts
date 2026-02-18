@@ -234,6 +234,54 @@ export type Database = {
           },
         ]
       }
+      user_game_library: {
+        Row: {
+          id: string
+          user_id: string
+          game_id: string
+          status: 'playing' | 'completed' | 'want_to_play' | 'dropped' | 'shelved'
+          notes: string | null
+          personal_rating: number | null
+          added_at: string
+          status_changed_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          game_id: string
+          status?: 'playing' | 'completed' | 'want_to_play' | 'dropped' | 'shelved'
+          notes?: string | null
+          personal_rating?: number | null
+          added_at?: string
+          status_changed_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          game_id?: string
+          status?: 'playing' | 'completed' | 'want_to_play' | 'dropped' | 'shelved'
+          notes?: string | null
+          personal_rating?: number | null
+          added_at?: string
+          status_changed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'user_game_library_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'user_game_library_game_id_fkey'
+            columns: ['game_id']
+            isOneToOne: false
+            referencedRelation: 'games'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       system_config: {
         Row: {
           key: string
@@ -293,6 +341,18 @@ export type Database = {
           cover_url: string
         }[]
       }
+      search_games_library: {
+        Args: { search_term: string }
+        Returns: {
+          id: string
+          name: string
+          slug: string
+          cover_url: string
+          release_year: number | null
+          genres: string[] | null
+          igdb_id: number | null
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
@@ -316,3 +376,5 @@ export type Profile = Tables<'profiles'>
 export type Game = Tables<'games'>
 export type GameSession = Tables<'game_sessions'>
 export type UserGame = Tables<'user_games'>
+export type UserGameLibrary = Tables<'user_game_library'>
+export type GameStatus = 'playing' | 'completed' | 'want_to_play' | 'dropped' | 'shelved'

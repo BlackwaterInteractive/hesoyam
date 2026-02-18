@@ -21,80 +21,14 @@ export async function handlePresenceUpdate(
     return; // Not a Hesoyam user
   }
 
-  // Log ALL raw activities from Discord for full visibility
-  const oldActivities = oldPresence?.activities.map((a) => ({
-    name: a.name,
-    type: a.type,
-    details: a.details,
-    state: a.state,
-    timestamps: a.timestamps ? {
-      start: a.timestamps.start?.toISOString() ?? null,
-      end: a.timestamps.end?.toISOString() ?? null,
-    } : null,
-    applicationId: a.applicationId,
-  })) ?? [];
-
-  const newActivities = newPresence.activities.map((a) => ({
-    name: a.name,
-    type: a.type,
-    details: a.details,
-    state: a.state,
-    timestamps: a.timestamps ? {
-      start: a.timestamps.start?.toISOString() ?? null,
-      end: a.timestamps.end?.toISOString() ?? null,
-    } : null,
-    applicationId: a.applicationId,
-  }));
-
   // Extract game activities
   const oldGame = extractPlayingActivity(oldPresence);
   const newGame = extractPlayingActivity(newPresence);
 
   const gameChanged = !isSameGame(oldGame, newGame);
 
-  // Flag if oldPresence is null — indicates a possible gateway reconnect
-  const isOldPresenceNull = oldPresence === null;
-
-  // Log EVERY presence update for monitored users (not just game changes)
-  logger.info('[PRESENCE] Raw update received', {
-    discordId,
-    oldPresenceNull: isOldPresenceNull,
-    oldStatus: oldPresence?.status ?? null,
-    newStatus: newPresence.status,
-    oldActivityCount: oldActivities.length,
-    newActivityCount: newActivities.length,
-    oldActivities: JSON.stringify(oldActivities),
-    newActivities: JSON.stringify(newActivities),
-    oldGame: oldGame?.name ?? null,
-    newGame: newGame?.name ?? null,
-    gameChanged,
-    hasActiveSession: sessionTracker.hasActiveSession(discordId),
-    timestamp: new Date().toISOString(),
-  });
-
-  // Warn loudly if old presence is null and we have an active session — gateway reconnect scenario
-  if (isOldPresenceNull && sessionTracker.hasActiveSession(discordId)) {
-    logger.warn('[PRESENCE] ⚠️ OLD PRESENCE IS NULL but active session exists — possible gateway reconnect', {
-      discordId,
-      newGame: newGame?.name ?? null,
-      activeSessionGame: sessionTracker.getActiveSessionGame(discordId),
-      timestamp: new Date().toISOString(),
-    });
-  }
-
   // Skip if nothing changed
-  if (!gameChanged) {
-    // Log same-game heartbeats at debug level to track that we ARE receiving updates
-    if (oldGame && newGame) {
-      logger.info('[PRESENCE] Same game heartbeat (skipping handleGameChange)', {
-        discordId,
-        gameName: newGame.name,
-        hasActiveSession: sessionTracker.hasActiveSession(discordId),
-        timestamp: new Date().toISOString(),
-      });
-    }
-    return;
-  }
+  if (!gameChanged) return;
 
   // Determine case
   let changeCase = 'unknown';
@@ -104,10 +38,8 @@ export async function handlePresenceUpdate(
 
   logger.info(`[PRESENCE] Game change: ${changeCase}`, {
     discordId,
-    oldGame: oldGame ? { name: oldGame.name, startedAt: oldGame.startedAt?.toISOString() ?? null } : null,
-    newGame: newGame ? { name: newGame.name, startedAt: newGame.startedAt?.toISOString() ?? null } : null,
-    changeCase,
-    timestamp: new Date().toISOString(),
+    oldGame: oldGame?.name ?? null,
+    newGame: newGame?.name ?? null,
   });
 
   // Handle the game change
