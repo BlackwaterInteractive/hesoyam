@@ -22,6 +22,9 @@ const resolveCache = new Map<string, ResolvedGame>();
  * 5. Create minimal record as last resort
  */
 export async function resolveGame(gameName: string): Promise<ResolvedGame> {
+  // Normalize: strip trademark/copyright symbols that Discord activity names often include
+  gameName = gameName.replace(/[®™©]/g, '').replace(/\s+/g, ' ').trim();
+
   // 1. Check cache (normalized key)
   const cacheKey = gameName.toLowerCase().trim();
   const cached = resolveCache.get(cacheKey);
