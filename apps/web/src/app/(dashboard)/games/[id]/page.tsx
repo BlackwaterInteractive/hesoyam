@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { formatDuration } from '@/lib/utils'
 import { GameDetailStats } from '@/components/games/game-detail-stats'
-import type { Game, UserGame, GameSession } from '@/lib/types'
+import { GameLibraryActions } from '@/components/games/game-library-actions'
+import type { Game, UserGame, UserGameLibrary, GameSession } from '@/lib/types'
 
 interface GameDetailPageProps {
   params: Promise<{ id: string }>
@@ -55,6 +56,14 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
     .eq('game_id', id)
     .single()
 
+  // Fetch library entry
+  const { data: libraryEntry } = await supabase
+    .from('user_game_library')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('game_id', id)
+    .single()
+
   // Fetch recent sessions (last 30 days worth, up to 100)
   const { data: sessions } = await supabase
     .from('game_sessions')
@@ -66,6 +75,7 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
 
   const typedGame = game as Game
   const typedUserGame = userGame as UserGame | null
+  const typedLibraryEntry = libraryEntry as UserGameLibrary | null
   const typedSessions = (sessions ?? []) as GameSession[]
 
   const initial = typedGame.name.charAt(0).toUpperCase()
@@ -101,7 +111,7 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
         <div className="mb-10 flex flex-col gap-8 sm:flex-row">
           {/* Cover */}
           <div className="w-full shrink-0 sm:w-48">
-            <div className="aspect-[3/4] w-full overflow-hidden rounded-lg">
+            <div className="aspect-[3/4] w-full overflow-hidden ">
               {typedGame.cover_url ? (
                 <img
                   src={typedGame.cover_url}
@@ -119,7 +129,7 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
           </div>
 
           {/* Info */}
-          <div className="flex flex-col justify-center">
+          <div className="flex flex-1 flex-col justify-center">
             <h1 className="text-3xl font-bold tracking-tight text-zinc-100 sm:text-4xl">
               {typedGame.name}
             </h1>
@@ -144,6 +154,25 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
                   {typedGame.developer}
                 </span>
               )}
+              {typedGame.publisher && (
+                <span className="flex items-center gap-1.5">
+                  <svg
+                    className="h-4 w-4 text-zinc-500"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3H21m-3.75 3H21"
+                    />
+                  </svg>
+                  {typedGame.publisher}
+                </span>
+              )}
               {typedGame.release_year && (
                 <span className="flex items-center gap-1.5">
                   <svg
@@ -163,6 +192,25 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
                   {typedGame.release_year}
                 </span>
               )}
+              {typedGame.rating && (
+                <span className="flex items-center gap-1.5">
+                  <svg
+                    className="h-4 w-4 text-zinc-500"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
+                    />
+                  </svg>
+                  {Math.round(typedGame.rating)}/100
+                </span>
+              )}
             </div>
 
             {/* Genres */}
@@ -171,9 +219,23 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
                 {typedGame.genres.map((genre) => (
                   <span
                     key={genre}
-                    className="rounded-full border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-300"
+                    className="border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-300"
                   >
                     {genre}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Platforms */}
+            {typedGame.platforms && typedGame.platforms.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {typedGame.platforms.map((platform) => (
+                  <span
+                    key={platform}
+                    className="border border-zinc-800 px-2 py-0.5 text-xs text-zinc-500"
+                  >
+                    {platform}
                   </span>
                 ))}
               </div>
@@ -181,24 +243,50 @@ export default async function GameDetailPage({ params }: GameDetailPageProps) {
           </div>
         </div>
 
+        {/* Library actions */}
+        <div className="mb-8">
+          <GameLibraryActions gameId={id} libraryEntry={typedLibraryEntry} />
+        </div>
+
+        {/* Description */}
+        {typedGame.description && (
+          <div className="mb-8 border border-zinc-800 bg-zinc-900 p-6">
+            <h3 className="mb-3 text-lg font-semibold text-zinc-100">About</h3>
+            <p className="text-sm leading-relaxed text-zinc-400">
+              {typedGame.description}
+            </p>
+          </div>
+        )}
+
         {/* Stats and chart */}
-        {typedUserGame ? (
+        {typedUserGame && (
           <GameDetailStats
             game={typedGame}
             userGame={typedUserGame}
             sessions={typedSessions}
           />
-        ) : (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center">
-            <p className="text-zinc-400">
-              No play time recorded for this game yet.
-            </p>
+        )}
+
+        {/* Screenshots */}
+        {typedGame.screenshots && typedGame.screenshots.length > 0 && (
+          <div className="mt-8 border border-zinc-800 bg-zinc-900 p-6">
+            <h3 className="mb-4 text-lg font-semibold text-zinc-100">Screenshots</h3>
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {typedGame.screenshots.map((url, i) => (
+                <img
+                  key={i}
+                  src={url}
+                  alt={`${typedGame.name} screenshot ${i + 1}`}
+                  className="h-48 shrink-0 object-cover"
+                />
+              ))}
+            </div>
           </div>
         )}
 
         {/* Recent sessions table */}
         {typedSessions.length > 0 && (
-          <div className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+          <div className="mt-8 border border-zinc-800 bg-zinc-900 p-6">
             <h3 className="mb-6 text-lg font-semibold text-zinc-100">
               Recent Sessions
             </h3>

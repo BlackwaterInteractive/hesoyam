@@ -112,7 +112,7 @@ export function StreakCards({ allDaysPlayed }: StreakCardsProps) {
       {stats.map((stat) => (
         <div
           key={stat.label}
-          className="rounded-xl border border-zinc-800 bg-zinc-900 p-6"
+          className="border border-zinc-800 bg-zinc-900 p-6"
         >
           <p className="text-sm font-medium text-zinc-400">{stat.label}</p>
           <div className="mt-2 flex items-baseline gap-1.5">

@@ -15,7 +15,7 @@ export function cn(...classes: ClassValue[]) {
  */
 export function formatDuration(secs: number): string {
   if (secs < 0) secs = 0
-  if (secs < 60) return '<1m'
+  if (secs < 60) return '--'
 
   const hours = Math.floor(secs / 3600)
   const minutes = Math.floor((secs % 3600) / 60)

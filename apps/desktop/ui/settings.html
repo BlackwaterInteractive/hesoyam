@@ -68,8 +68,38 @@
     .btn-danger:hover { background: #3f3f46; }
     .btn-secondary { background: #27272a; color: #fafafa; }
     .btn-secondary:hover { background: #3f3f46; }
-    .auth-section { text-align: center; padding: 2rem 1rem; }
-    .auth-section p { color: #a1a1aa; margin-bottom: 1rem; font-size: 0.875rem; }
+    .auth-section { padding: 1.5rem 1rem; }
+    .auth-section p { color: #a1a1aa; margin-bottom: 1rem; font-size: 0.875rem; text-align: center; }
+    .auth-input {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      background: #09090b;
+      color: #fafafa;
+      font-size: 0.8rem;
+      margin-bottom: 0.5rem;
+      outline: none;
+    }
+    .auth-input:focus { border-color: #10b981; }
+    .auth-error {
+      color: #ef4444;
+      font-size: 0.75rem;
+      margin-bottom: 0.5rem;
+      display: none;
+    }
+    .auth-link {
+      text-align: center;
+      margin-top: 0.5rem;
+    }
+    .auth-link a {
+      color: #71717a;
+      font-size: 0.7rem;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .auth-link a:hover { color: #a1a1aa; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .status-badge {
       display: inline-flex;
       align-items: center;
@@ -146,8 +176,12 @@
         } else {
           section.innerHTML = `
             <div class="auth-section">
-              <p>Connect your Hesoyam account to sync your game sessions to the cloud.</p>
-              <button class="btn btn-primary" onclick="startAuth()">Connect Account</button>
+              <p>Sign in to sync your game sessions to the cloud.</p>
+              <div id="auth-error" class="auth-error"></div>
+              <input type="email" id="auth-email" class="auth-input" placeholder="Email" />
+              <input type="password" id="auth-password" class="auth-input" placeholder="Password" />
+              <button class="btn btn-primary" id="auth-submit" style="width:100%" onclick="signIn()">Sign In</button>
+              <div class="auth-link"><a onclick="openSignup()">Don't have an account? Sign up</a></div>
             </div>
           `;
           signoutBtn.style.display = 'none';
@@ -157,13 +191,36 @@
       }
     }
 
-    async function startAuth() {
+    async function signIn() {
+      const email = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const errorEl = document.getElementById('auth-error');
+      const submitBtn = document.getElementById('auth-submit');
+
+      if (!email || !password) {
+        errorEl.textContent = 'Please enter both email and password.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      errorEl.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Signing in...';
+
       try {
-        await invoke('start_auth_flow');
+        await invoke('sign_in', { email, password });
         checkAuth();
       } catch (e) {
-        console.error(e);
+        errorEl.textContent = e;
+        errorEl.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sign In';
       }
+    }
+
+    function openSignup() {
+      window.__TAURI__.shell.open('https://hesoyam.gg/signup');
     }
 
     async function signOut() {

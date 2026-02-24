@@ -56,7 +56,7 @@ export function Header({ username, displayName, avatarUrl }: HeaderProps) {
       <div className="relative" ref={dropdownRef}>
         <button
           onClick={() => setDropdownOpen(!dropdownOpen)}
-          className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-zinc-800/50"
+          className="flex items-center gap-2 px-2 py-1.5 transition-colors hover:bg-zinc-800/50"
         >
           {avatarUrl ? (
             <img
@@ -88,7 +88,7 @@ export function Header({ username, displayName, avatarUrl }: HeaderProps) {
         </button>
 
         {dropdownOpen && (
-          <div className="absolute right-0 mt-2 w-56 origin-top-right rounded-xl border border-zinc-800 bg-zinc-900 p-1 shadow-xl">
+          <div className="absolute right-0 mt-2 w-56 origin-top-right border border-zinc-800 bg-zinc-900 p-1 shadow-xl">
             <div className="border-b border-zinc-800 px-3 py-2">
               <p className="text-sm font-medium text-white">
                 {displayName || username}
@@ -98,7 +98,7 @@ export function Header({ username, displayName, avatarUrl }: HeaderProps) {
             <div className="py-1">
               <a
                 href="/settings"
-                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+                className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
               >
                 <svg
                   className="h-4 w-4"
@@ -122,7 +122,7 @@ export function Header({ username, displayName, avatarUrl }: HeaderProps) {
               </a>
               <button
                 onClick={handleSignOut}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
               >
                 <svg
                   className="h-4 w-4"

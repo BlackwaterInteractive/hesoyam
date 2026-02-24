@@ -12,13 +12,13 @@ export default function DownloadPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/login"
-              className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:text-white"
+              className="px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:text-white"
             >
               Login
             </Link>
             <Link
               href="/signup"
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
+              className="bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500"
             >
               Sign Up
             </Link>
@@ -44,9 +44,9 @@ export default function DownloadPage() {
       <section className="mx-auto max-w-4xl px-6 pb-16">
         <div className="grid gap-6 sm:grid-cols-3">
           {/* Windows */}
-          <div className="flex flex-col items-center rounded-xl border border-zinc-800 bg-zinc-900 p-8 text-center">
+          <div className="flex flex-col items-center border border-zinc-800 bg-zinc-900 p-8 text-center">
             {/* Windows icon */}
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800">
+            <div className="flex h-16 w-16 items-center justify-center bg-zinc-800">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="32"
@@ -67,7 +67,7 @@ export default function DownloadPage() {
             </p>
             <button
               disabled
-              className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600/40 px-6 text-sm font-semibold text-emerald-200 cursor-not-allowed"
+              className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 bg-emerald-600/40 px-6 text-sm font-semibold text-emerald-200 cursor-not-allowed"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -89,8 +89,8 @@ export default function DownloadPage() {
           </div>
 
           {/* macOS */}
-          <div className="flex flex-col items-center rounded-xl border border-zinc-800 bg-zinc-900 p-8 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800">
+          <div className="flex flex-col items-center border border-zinc-800 bg-zinc-900 p-8 text-center">
+            <div className="flex h-16 w-16 items-center justify-center bg-zinc-800">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="32"
@@ -108,14 +108,14 @@ export default function DownloadPage() {
             <p className="mt-2 text-sm text-zinc-400">
               Native macOS support is on the roadmap. Stay tuned for updates.
             </p>
-            <div className="mt-6 flex h-11 w-full items-center justify-center rounded-lg border border-zinc-700 text-sm font-medium text-zinc-500">
+            <div className="mt-6 flex h-11 w-full items-center justify-center border border-zinc-700 text-sm font-medium text-zinc-500">
               Coming Soon
             </div>
           </div>
 
           {/* Linux */}
-          <div className="flex flex-col items-center rounded-xl border border-zinc-800 bg-zinc-900 p-8 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800">
+          <div className="flex flex-col items-center border border-zinc-800 bg-zinc-900 p-8 text-center">
+            <div className="flex h-16 w-16 items-center justify-center bg-zinc-800">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="32"
@@ -134,7 +134,7 @@ export default function DownloadPage() {
               Linux support is on the roadmap. We will prioritize based on
               community demand.
             </p>
-            <div className="mt-6 flex h-11 w-full items-center justify-center rounded-lg border border-zinc-700 text-sm font-medium text-zinc-500">
+            <div className="mt-6 flex h-11 w-full items-center justify-center border border-zinc-700 text-sm font-medium text-zinc-500">
               Coming Soon
             </div>
           </div>
@@ -143,7 +143,7 @@ export default function DownloadPage() {
 
       {/* ─── System Requirements ─── */}
       <section className="mx-auto max-w-4xl px-6 pb-16">
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-8">
+        <div className="border border-zinc-800 bg-zinc-900 p-8">
           <h2 className="text-lg font-semibold text-white">
             System Requirements
           </h2>
@@ -152,7 +152,7 @@ export default function DownloadPage() {
           </p>
           <ul className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
             <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600/10 text-emerald-400">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center bg-emerald-600/10 text-emerald-400">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="12"
@@ -173,7 +173,7 @@ export default function DownloadPage() {
               </span>
             </li>
             <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600/10 text-emerald-400">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center bg-emerald-600/10 text-emerald-400">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="12"
@@ -194,7 +194,7 @@ export default function DownloadPage() {
               </span>
             </li>
             <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600/10 text-emerald-400">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center bg-emerald-600/10 text-emerald-400">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="12"
@@ -215,7 +215,7 @@ export default function DownloadPage() {
               </span>
             </li>
             <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600/10 text-emerald-400">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center bg-emerald-600/10 text-emerald-400">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="12"

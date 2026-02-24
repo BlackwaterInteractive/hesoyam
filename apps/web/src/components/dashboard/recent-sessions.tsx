@@ -14,7 +14,7 @@ interface RecentSessionsProps {
 export function RecentSessions({ sessions }: RecentSessionsProps) {
   if (sessions.length === 0) {
     return (
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+      <div className="border border-zinc-800 bg-zinc-900 p-6">
         <h2 className="text-lg font-semibold text-white">Recent Sessions</h2>
         <div className="mt-8 flex flex-col items-center justify-center text-center">
           <svg
@@ -40,7 +40,7 @@ export function RecentSessions({ sessions }: RecentSessionsProps) {
   }
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+    <div className="border border-zinc-800 bg-zinc-900 p-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white">Recent Sessions</h2>
         <a
@@ -55,17 +55,17 @@ export function RecentSessions({ sessions }: RecentSessionsProps) {
         {sessions.map((session) => (
           <div
             key={session.id}
-            className="flex items-center gap-4 rounded-lg border border-zinc-800/50 bg-zinc-950/50 px-4 py-3"
+            className="flex items-center gap-4 border border-zinc-800/50 bg-zinc-950/50 px-4 py-3"
           >
             {/* Game cover */}
             {session.games?.cover_url ? (
               <img
                 src={session.games.cover_url}
                 alt={session.games.name}
-                className="h-10 w-7 rounded object-cover"
+                className="h-10 w-7 object-cover"
               />
             ) : (
-              <div className="flex h-10 w-7 items-center justify-center rounded bg-zinc-800 text-[10px] text-zinc-600">
+              <div className="flex h-10 w-7 items-center justify-center bg-zinc-800 text-[10px] text-zinc-600">
                 <svg
                   className="h-4 w-4"
                   fill="none"
@@ -85,7 +85,7 @@ export function RecentSessions({ sessions }: RecentSessionsProps) {
             {/* Game info */}
             <div className="flex-1 min-w-0">
               <p className="truncate text-sm font-medium text-white">
-                {session.games?.name || 'Unknown Game'}
+                {session.games?.name || session.game_name || 'Unknown Game'}
               </p>
               <p className="text-xs text-zinc-500">
                 {formatDate(session.started_at)}

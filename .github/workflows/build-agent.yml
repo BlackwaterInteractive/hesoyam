@@ -2,7 +2,7 @@ name: Build Desktop Agent
 
 on:
   push:
-    branches: [main, develop]
+    branches: [develop]
     paths:
       - 'apps/desktop/**'
   workflow_dispatch:

@@ -62,19 +62,19 @@ export default async function StatsPage() {
 
       {/* Summary row */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+        <div className="border border-zinc-800 bg-zinc-900 p-6">
           <p className="text-sm font-medium text-zinc-400">Total Play Time</p>
           <p className="mt-2 text-3xl font-bold text-white">
             {formatDuration(totalTimeSecs)}
           </p>
         </div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+        <div className="border border-zinc-800 bg-zinc-900 p-6">
           <p className="text-sm font-medium text-zinc-400">Total Sessions</p>
           <p className="mt-2 text-3xl font-bold text-white">
             {totalSessions.toLocaleString()}
           </p>
         </div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 sm:col-span-2 lg:col-span-1">
+        <div className="border border-zinc-800 bg-zinc-900 p-6 sm:col-span-2 lg:col-span-1">
           <p className="text-sm font-medium text-zinc-400">Genres Played</p>
           <p className="mt-2 text-3xl font-bold text-white">
             {genreData.length}

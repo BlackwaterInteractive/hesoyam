@@ -12,11 +12,12 @@ type SessionWithGame = {
   duration_secs: number
   active_secs: number
   idle_secs: number
+  game_name: string | null
   games: {
     name: string
     cover_url: string | null
     genres: string[]
-  }
+  } | null
 }
 
 interface DaySessionsProps {
@@ -66,6 +67,7 @@ export function DaySessions({ userId }: DaySessionsProps) {
           duration_secs,
           active_secs,
           idle_secs,
+          game_name,
           games (
             name,
             cover_url,
@@ -155,7 +157,7 @@ export function DaySessions({ userId }: DaySessionsProps) {
               {/* Session info */}
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium text-white">
-                  {session.games?.name ?? 'Unknown Game'}
+                  {session.games?.name || session.game_name || 'Unknown Game'}
                 </p>
                 <p className="mt-0.5 text-sm text-zinc-500">
                   {format(parseISO(session.started_at), 'h:mm a')}

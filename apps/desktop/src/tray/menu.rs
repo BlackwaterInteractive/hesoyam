@@ -1,4 +1,5 @@
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     AppHandle, Manager,
@@ -31,7 +32,11 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         ],
     )?;
 
+    let icon = Image::from_bytes(include_bytes!("../../icons/icon.png"))
+        .expect("Failed to load tray icon");
+
     let _tray = TrayIconBuilder::new()
+        .icon(icon)
         .menu(&menu)
         .tooltip("Hesoyam Game Tracker")
         .on_menu_event(move |app, event| match event.id.as_ref() {

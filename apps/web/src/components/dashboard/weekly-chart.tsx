@@ -58,7 +58,7 @@ function CustomTooltip({
   const minutes = Math.floor((secs % 3600) / 60)
 
   return (
-    <div className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 shadow-lg">
+    <div className="border border-zinc-700 bg-zinc-800 px-3 py-2 shadow-lg">
       <p className="text-xs font-medium text-zinc-400">{label}</p>
       <p className="text-sm font-bold text-white">
         {hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`}
@@ -72,7 +72,7 @@ export function WeeklyChart({ data }: WeeklyChartProps) {
   const maxHours = Math.max(...chartData.map((d) => d.hours), 1)
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+    <div className="border border-zinc-800 bg-zinc-900 p-6">
       <h2 className="text-lg font-semibold text-white">Weekly Activity</h2>
       <p className="mt-1 text-sm text-zinc-500">Hours played per day</p>
 
@@ -107,7 +107,7 @@ export function WeeklyChart({ data }: WeeklyChartProps) {
             <Bar
               dataKey="hours"
               fill="#10b981"
-              radius={[4, 4, 0, 0]}
+              radius={[0, 0, 0, 0]}
               maxBarSize={40}
             />
           </BarChart>

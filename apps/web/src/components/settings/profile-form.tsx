@@ -12,7 +12,7 @@ interface ProfileFormProps {
 }
 
 function getInitials(profile: Profile): string {
-  const name = profile.display_name || profile.username
+  const name = profile.display_name || profile.username || 'User'
   const parts = name.trim().split(/\s+/)
   if (parts.length >= 2) {
     return (parts[0][0] + parts[1][0]).toUpperCase()
@@ -22,7 +22,7 @@ function getInitials(profile: Profile): string {
 
 export function ProfileForm({ profile, email }: ProfileFormProps) {
   const [displayName, setDisplayName] = useState(profile.display_name || '')
-  const [username, setUsername] = useState(profile.username)
+  const [username, setUsername] = useState(profile.username ?? '')
   const [bio, setBio] = useState(profile.bio || '')
   const [privacy, setPrivacy] = useState<Profile['privacy']>(profile.privacy)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(profile.avatar_url)
@@ -136,7 +136,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
       {toast && (
         <div
           className={cn(
-            'rounded-lg border px-4 py-3 text-sm',
+            'border px-4 py-3 text-sm',
             toast.type === 'success'
               ? 'border-emerald-800 bg-emerald-950 text-emerald-300'
               : 'border-red-800 bg-red-950 text-red-300'
@@ -148,7 +148,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
 
       <form onSubmit={handleSubmit}>
         {/* Profile Section */}
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+        <section className="border border-zinc-800 bg-zinc-900 p-6">
           <h2 className="text-lg font-semibold text-zinc-100">Profile</h2>
           <p className="mt-1 text-sm text-zinc-400">
             Your public profile information.
@@ -174,7 +174,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="rounded-md bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+                    className="bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
                   >
                     Change Avatar
                   </button>
@@ -202,7 +202,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
                 onChange={(e) => setDisplayName(e.target.value)}
                 maxLength={50}
                 placeholder="Your display name"
-                className="mt-1.5 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                className="mt-1.5 block w-full border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
               />
             </div>
 
@@ -223,7 +223,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
                   minLength={3}
                   maxLength={30}
                   required
-                  className="block w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2 pl-7 pr-3 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  className="block w-full border border-zinc-700 bg-zinc-800 py-2 pl-7 pr-3 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 />
               </div>
               {usernameStatus === 'checking' && (
@@ -249,7 +249,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
                 maxLength={300}
                 rows={3}
                 placeholder="Tell others about yourself..."
-                className="mt-1.5 block w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                className="mt-1.5 block w-full resize-none border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
               />
               <p className="mt-1 text-right text-xs text-zinc-500">
                 {bio.length}/300
@@ -259,7 +259,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
         </section>
 
         {/* Privacy Section */}
-        <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+        <section className="mt-6 border border-zinc-800 bg-zinc-900 p-6">
           <h2 className="text-lg font-semibold text-zinc-100">Privacy</h2>
           <p className="mt-1 text-sm text-zinc-400">
             Control who can see your profile and gaming activity.
@@ -268,7 +268,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
           <fieldset className="mt-5 space-y-3">
             <legend className="sr-only">Profile visibility</legend>
 
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-800/50 p-3 transition-colors hover:bg-zinc-800">
+            <label className="flex cursor-pointer items-start gap-3 border border-zinc-800 bg-zinc-800/50 p-3 transition-colors hover:bg-zinc-800">
               <input
                 type="radio"
                 name="privacy"
@@ -283,7 +283,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
               </div>
             </label>
 
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-800/50 p-3 transition-colors hover:bg-zinc-800">
+            <label className="flex cursor-pointer items-start gap-3 border border-zinc-800 bg-zinc-800/50 p-3 transition-colors hover:bg-zinc-800">
               <input
                 type="radio"
                 name="privacy"
@@ -298,7 +298,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
               </div>
             </label>
 
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-800/50 p-3 transition-colors hover:bg-zinc-800">
+            <label className="flex cursor-pointer items-start gap-3 border border-zinc-800 bg-zinc-800/50 p-3 transition-colors hover:bg-zinc-800">
               <input
                 type="radio"
                 name="privacy"
@@ -321,7 +321,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
             type="submit"
             disabled={isPending || usernameStatus === 'taken'}
             className={cn(
-              'rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-colors',
+              'px-5 py-2.5 text-sm font-medium text-white transition-colors',
               isPending || usernameStatus === 'taken'
                 ? 'cursor-not-allowed bg-emerald-800 opacity-50'
                 : 'bg-emerald-600 hover:bg-emerald-500'
@@ -333,7 +333,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
       </form>
 
       {/* Account Section */}
-      <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+      <section className="border border-zinc-800 bg-zinc-900 p-6">
         <h2 className="text-lg font-semibold text-zinc-100">Account</h2>
         <p className="mt-1 text-sm text-zinc-400">
           Your account information and actions.
@@ -350,7 +350,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
               type="email"
               value={email}
               readOnly
-              className="mt-1.5 block w-full cursor-not-allowed rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-400 outline-none"
+              className="mt-1.5 block w-full cursor-not-allowed border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-400 outline-none"
             />
             <p className="mt-1 text-xs text-zinc-500">
               Your email cannot be changed here.
@@ -363,7 +363,7 @@ export function ProfileForm({ profile, email }: ProfileFormProps) {
               type="button"
               onClick={handleSignOut}
               disabled={isSigningOut}
-              className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+              className="border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSigningOut ? 'Signing out...' : 'Sign Out'}
             </button>

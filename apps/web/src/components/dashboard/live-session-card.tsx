@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useGamePresence } from '@/hooks/use-game-presence'
 import type { GameSession, Game } from '@/lib/types'
 
 interface LiveSessionData {
@@ -35,10 +36,58 @@ export function LiveSessionCard({
   initialSession,
   userId,
 }: LiveSessionCardProps) {
-  const [liveSession, setLiveSession] = useState<LiveSessionData | null>(
+  const [dbSession, setDbSession] = useState<LiveSessionData | null>(
     initialSession
   )
   const [elapsed, setElapsed] = useState('')
+
+  // Subscribe to real-time presence broadcasts (instant updates)
+  const presence = useGamePresence(userId)
+
+  // Build session data from presence if available, otherwise fall back to DB
+  const liveSession = useMemo<LiveSessionData | null>(() => {
+    if (presence) {
+      return {
+        session: {
+          id: `presence-${presence.game_id}`,
+          user_id: presence.user_id,
+          game_id: presence.game_id,
+          game_name: presence.game_name,
+          started_at: presence.started_at,
+          ended_at: null,
+          duration_secs: 0,
+          active_secs: 0,
+          idle_secs: 0,
+          source: 'discord' as const,
+          created_at: presence.started_at,
+          updated_at: new Date().toISOString(),
+        },
+        game: {
+          id: presence.game_id,
+          igdb_id: null,
+          name: presence.game_name,
+          slug: presence.game_slug,
+          cover_url: presence.cover_url,
+          genres: null,
+          developer: null,
+          release_year: null,
+          description: null,
+          publisher: null,
+          platforms: null,
+          screenshots: null,
+          artwork_url: null,
+          igdb_url: null,
+          rating: null,
+          rating_count: null,
+          first_release_date: null,
+          igdb_updated_at: null,
+          metadata_source: null,
+          created_at: presence.started_at,
+        },
+      }
+    }
+    return dbSession
+  }, [presence, dbSession])
 
   // Update elapsed timer
   useEffect(() => {
@@ -53,8 +102,8 @@ export function LiveSessionCard({
     return () => clearInterval(interval)
   }, [liveSession])
 
-  // Subscribe to realtime changes on game_sessions
-  const fetchLiveSession = useCallback(async () => {
+  // Subscribe to realtime changes on game_sessions (fallback for DB-based updates)
+  const fetchDbSession = useCallback(async () => {
     const supabase = createClient()
     const { data: sessions } = await supabase
       .from('game_sessions')
@@ -66,17 +115,51 @@ export function LiveSessionCard({
 
     if (sessions && sessions.length > 0) {
       const session = sessions[0]
-      const { data: game } = await supabase
-        .from('games')
-        .select('*')
-        .eq('id', session.game_id)
-        .single()
+
+      // Try to fetch game if game_id exists (agent sessions)
+      let game: Game | null = null
+      if (session.game_id) {
+        const { data } = await supabase
+          .from('games')
+          .select('*')
+          .eq('id', session.game_id)
+          .single()
+        game = data
+      }
+
+      // For Discord sessions without game_id, create a minimal game object
+      if (!game && session.game_name) {
+        game = {
+          id: `discord-${session.id}`,
+          igdb_id: null,
+          name: session.game_name,
+          slug: session.game_name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          cover_url: null,
+          genres: null,
+          developer: null,
+          release_year: null,
+          description: null,
+          publisher: null,
+          platforms: null,
+          screenshots: null,
+          artwork_url: null,
+          igdb_url: null,
+          rating: null,
+          rating_count: null,
+          first_release_date: null,
+          igdb_updated_at: null,
+          metadata_source: null,
+          created_at: session.created_at,
+        }
+      }
 
       if (game) {
-        setLiveSession({ session, game })
+        setDbSession({ session, game })
+      } else {
+        setDbSession(null)
       }
     } else {
-      setLiveSession(null)
+      setDbSession(null)
     }
   }, [userId])
 
@@ -84,7 +167,7 @@ export function LiveSessionCard({
     const supabase = createClient()
 
     const channel = supabase
-      .channel('live-session')
+      .channel('live-session-db')
       .on(
         'postgres_changes',
         {
@@ -94,7 +177,7 @@ export function LiveSessionCard({
           filter: `user_id=eq.${userId}`,
         },
         () => {
-          fetchLiveSession()
+          fetchDbSession()
         }
       )
       .subscribe()
@@ -102,12 +185,12 @@ export function LiveSessionCard({
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [userId, fetchLiveSession])
+  }, [userId, fetchDbSession])
 
   if (!liveSession) return null
 
   return (
-    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-6">
+    <div className="border border-emerald-500/20 bg-emerald-500/5 p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {/* Pulsing green dot */}
@@ -129,10 +212,10 @@ export function LiveSessionCard({
           <img
             src={liveSession.game.cover_url}
             alt={liveSession.game.name}
-            className="h-14 w-10 rounded-lg object-cover"
+            className="h-14 w-10 object-cover"
           />
         ) : (
-          <div className="flex h-14 w-10 items-center justify-center rounded-lg bg-zinc-800 text-xs text-zinc-500">
+          <div className="flex h-14 w-10 items-center justify-center bg-zinc-800 text-xs text-zinc-500">
             <svg
               className="h-5 w-5"
               fill="none"

@@ -37,7 +37,7 @@ function CustomTooltip({ active, payload }: any) {
 
   const entry = payload[0]
   return (
-    <div className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 shadow-lg">
+    <div className="border border-zinc-700 bg-zinc-800 px-3 py-2 shadow-lg">
       <p className="text-xs font-medium text-zinc-400">{entry.name}</p>
       <p className="text-sm font-bold text-white">
         {formatDuration(entry.value)}
@@ -54,7 +54,7 @@ function CustomLegend({ payload }: any) {
       {payload.map((entry: any, index: number) => (
         <div key={index} className="flex items-center gap-1.5">
           <div
-            className="h-2.5 w-2.5 rounded-full"
+            className="h-2.5 w-2.5 "
             style={{ backgroundColor: entry.color }}
           />
           <span className="text-xs text-zinc-400">{entry.value}</span>
@@ -67,7 +67,7 @@ function CustomLegend({ payload }: any) {
 export function GenreChart({ data }: GenreChartProps) {
   if (!data || data.length === 0) {
     return (
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+      <div className="border border-zinc-800 bg-zinc-900 p-6">
         <h2 className="text-lg font-semibold text-white">
           Genre Distribution
         </h2>
@@ -88,7 +88,7 @@ export function GenreChart({ data }: GenreChartProps) {
   }))
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+    <div className="border border-zinc-800 bg-zinc-900 p-6">
       <h2 className="text-lg font-semibold text-white">Genre Distribution</h2>
       <p className="mt-1 text-sm text-zinc-500">Time played per genre</p>
 
@@ -123,11 +123,11 @@ export function GenreChart({ data }: GenreChartProps) {
         {chartData.map((item, index) => (
           <div
             key={item.name}
-            className="flex items-center justify-between rounded-lg px-3 py-2 transition-colors hover:bg-zinc-800"
+            className="flex items-center justify-between px-3 py-2 transition-colors hover:bg-zinc-800"
           >
             <div className="flex items-center gap-2">
               <div
-                className="h-3 w-3 rounded"
+                className="h-3 w-3"
                 style={{ backgroundColor: COLORS[index % COLORS.length] }}
               />
               <span className="text-sm text-white">{item.name}</span>

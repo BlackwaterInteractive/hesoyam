@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { ProfileForm } from '@/components/settings/profile-form'
+import { DiscordConnection } from '@/components/settings/discord-connection'
+import { TrackingStatus } from '@/components/settings/tracking-status'
 
 export const metadata = {
   title: 'Settings - Hesoyam',
@@ -30,10 +32,17 @@ export default async function SettingsPage() {
       <div>
         <h2 className="text-2xl font-bold text-white">Settings</h2>
         <p className="mt-1 text-zinc-500">
-          Manage your profile and account preferences.
+          Manage your profile, tracking methods, and account preferences.
         </p>
       </div>
 
+      {/* Tracking Status */}
+      <TrackingStatus profile={profile} />
+
+      {/* Discord Connection */}
+      <DiscordConnection profile={profile} />
+
+      {/* Profile Form */}
       <ProfileForm profile={profile} email={user.email || ''} />
     </div>
   )
