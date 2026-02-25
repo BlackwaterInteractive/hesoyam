@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+const isStaging = process.env.NODE_ENV !== 'production'
+
 export interface GamePresence {
   user_id: string
   game_id: string
@@ -33,6 +35,14 @@ export function useGamePresence(userId: string): GamePresence | null {
       .on('broadcast', { event: 'game_presence' }, (message) => {
         const payload = message.payload as Omit<GamePresence, 'received_at'>
 
+        if (isStaging) {
+          if (payload.event === 'heartbeat') {
+            console.debug('[Presence] Heartbeat received:', payload.game_name)
+          } else {
+            console.debug('[Presence] Received broadcast:', payload.event, payload.game_name)
+          }
+        }
+
         if (payload.event === 'end') {
           setPresence(null)
         } else {
@@ -50,10 +60,17 @@ export function useGamePresence(userId: string): GamePresence | null {
         }
       })
 
-    // Staleness check - clear if no heartbeat for 15 seconds
+    // Staleness check - clear if no heartbeat for 45 seconds
+    // (heartbeats are sent every 30s, so 45s allows for network delays)
     const staleCheck = setInterval(() => {
       setPresence((prev) => {
-        if (prev && Date.now() - prev.received_at > 15000) {
+        if (prev && Date.now() - prev.received_at > 45000) {
+          if (isStaging) {
+            console.debug('[Presence] Stale presence detected, clearing', {
+              game: prev.game_name,
+              staleSecs: Math.floor((Date.now() - prev.received_at) / 1000),
+            })
+          }
           return null
         }
         return prev

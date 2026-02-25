@@ -1,9 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useGamePresence } from '@/hooks/use-game-presence'
 import type { GameSession, Game } from '@/lib/types'
+
+const isStaging = process.env.NODE_ENV !== 'production'
 
 interface LiveSessionData {
   session: GameSession
@@ -36,10 +39,12 @@ export function LiveSessionCard({
   initialSession,
   userId,
 }: LiveSessionCardProps) {
+  const router = useRouter()
   const [dbSession, setDbSession] = useState<LiveSessionData | null>(
     initialSession
   )
   const [elapsed, setElapsed] = useState('')
+  const prevLiveSessionRef = useRef<LiveSessionData | null>(initialSession)
 
   // Subscribe to real-time presence broadcasts (instant updates)
   const presence = useGamePresence(userId)
@@ -88,6 +93,21 @@ export function LiveSessionCard({
     }
     return dbSession
   }, [presence, dbSession])
+
+  // Detect session end: liveSession went from non-null → null
+  // Refresh server components to update recent sessions, stats, and charts
+  useEffect(() => {
+    const wasPlaying = prevLiveSessionRef.current !== null
+    const isPlaying = liveSession !== null
+    prevLiveSessionRef.current = liveSession
+
+    if (wasPlaying && !isPlaying) {
+      if (isStaging) {
+        console.debug('[LiveSession] Session ended, refreshing dashboard')
+      }
+      router.refresh()
+    }
+  }, [liveSession, router])
 
   // Update elapsed timer
   useEffect(() => {

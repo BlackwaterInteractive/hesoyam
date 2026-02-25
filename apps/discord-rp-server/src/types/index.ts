@@ -19,6 +19,7 @@ export interface ActiveSession {
   gameName: string;
   startedAt: Date;
   lastUpdate: Date;
+  lastBroadcast: number; // Timestamp (ms) of last heartbeat broadcast
 }
 
 /**
