@@ -22,6 +22,9 @@ const END_GRACE_MS = 30_000;
 // How often to touch updated_at on active sessions (must be < 6min stale threshold)
 const DB_KEEPALIVE_MS = 4 * 60_000; // 4 minutes
 
+// How often to broadcast heartbeats to web clients (must be < web staleness threshold of 45s)
+const BROADCAST_HEARTBEAT_MS = 25_000; // 25 seconds
+
 /**
  * Tracks active sessions for Discord-monitored users
  */
@@ -36,6 +39,9 @@ class SessionTracker {
 
   // DB keepalive interval handle
   private keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Proactive heartbeat broadcast interval handle
+  private heartbeatBroadcastInterval: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Start the periodic DB keepalive that touches updated_at on active sessions.
@@ -53,6 +59,37 @@ class SessionTracker {
     }, DB_KEEPALIVE_MS);
 
     logger.info('[SESSION] DB keepalive started', { intervalMs: DB_KEEPALIVE_MS });
+
+    // Proactive heartbeat broadcast — sends heartbeat to web clients every 25s
+    // This is independent of Discord presence updates, so the web never goes stale
+    this.heartbeatBroadcastInterval = setInterval(async () => {
+      const sessions = Array.from(this.activeSessions.entries());
+      if (sessions.length === 0) return;
+
+      for (const [discordId, session] of sessions) {
+        // Skip if pending end (game might be closing)
+        if (this.pendingEnds.has(discordId)) continue;
+
+        logger.debug('[SESSION] Proactive heartbeat broadcast', {
+          userId: session.userId,
+          discordId,
+          gameName: session.gameName,
+          sessionId: session.id,
+        });
+
+        await broadcastHeartbeat(session.userId, {
+          name: session.gameName,
+          applicationId: null,
+          details: null,
+          state: null,
+          startedAt: session.startedAt,
+          largeImageUrl: null,
+          smallImageUrl: null,
+        });
+      }
+    }, BROADCAST_HEARTBEAT_MS);
+
+    logger.info('[SESSION] Heartbeat broadcast started', { intervalMs: BROADCAST_HEARTBEAT_MS });
   }
 
   /**
@@ -286,6 +323,7 @@ class SessionTracker {
       gameName: game.name,
       startedAt: new Date(session.started_at),
       lastUpdate: new Date(),
+      lastBroadcast: Date.now(),
     });
 
     logger.info('[SESSION] handleGameStart: SESSION CREATED AND TRACKED', {
@@ -341,7 +379,18 @@ class SessionTracker {
 
     if (closed) {
       // Broadcast presence end
+      logger.debug('[SESSION] handleGameEnd: broadcasting end event', {
+        userId,
+        discordId,
+        gameName: localSession?.gameName ?? null,
+        sessionId: localSession?.id ?? null,
+      });
       await broadcastGameEnd(userId);
+    } else {
+      logger.debug('[SESSION] handleGameEnd: session not closed, skipping end broadcast', {
+        userId,
+        discordId,
+      });
     }
   }
 
@@ -371,8 +420,17 @@ class SessionTracker {
 
     // Broadcast heartbeat periodically (not on every presence update)
     // Discord sends presence updates frequently, we don't need to broadcast all of them
-    const timeSinceLastBroadcast = Date.now() - activeSession.lastUpdate.getTime();
+    const now = Date.now();
+    const timeSinceLastBroadcast = now - activeSession.lastBroadcast;
     if (timeSinceLastBroadcast >= 30000) { // 30 seconds
+      activeSession.lastBroadcast = now;
+      logger.debug('[SESSION] handleHeartbeat: broadcasting heartbeat', {
+        userId,
+        discordId,
+        gameName: game.name,
+        timeSinceLastBroadcastMs: timeSinceLastBroadcast,
+        sessionId: activeSession.id,
+      });
       await broadcastHeartbeat(userId, game);
     }
   }
@@ -414,10 +472,14 @@ class SessionTracker {
       }
     }
 
-    // Clear keepalive interval
+    // Clear keepalive and heartbeat broadcast intervals
     if (this.keepaliveInterval) {
       clearInterval(this.keepaliveInterval);
       this.keepaliveInterval = null;
+    }
+    if (this.heartbeatBroadcastInterval) {
+      clearInterval(this.heartbeatBroadcastInterval);
+      this.heartbeatBroadcastInterval = null;
     }
 
     // Clear pending end timers
@@ -498,6 +560,7 @@ class SessionTracker {
           gameName: session.game_name,
           startedAt: new Date(session.started_at),
           lastUpdate: new Date(),
+          lastBroadcast: Date.now(),
         });
         logger.info('[SESSION] reconcileOnStartup: ADOPTED session', {
           userId: session.user_id,
