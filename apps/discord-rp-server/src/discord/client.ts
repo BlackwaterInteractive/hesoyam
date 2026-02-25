@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, PresenceUpdateStatus } from 'discord.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { handleReady } from './events/ready.js';
@@ -22,6 +22,9 @@ export function createDiscordClient(): Client {
       GatewayIntentBits.GuildMembers,
     ],
     partials: [Partials.GuildMember],
+    presence: {
+      status: PresenceUpdateStatus.Online,
+    },
   });
 
   // Register event handlers

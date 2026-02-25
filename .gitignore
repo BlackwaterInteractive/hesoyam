@@ -1,13 +1,43 @@
+# Dependencies
 node_modules/
+
+# Build output
+dist/
 .next/
+out/
+build/
+target/
+.turbo/
+*.tsbuildinfo
+
+# Environment
 .env
 .env.local
 .env.*.local
-dist/
-target/
+.env.staging
+!.env.example
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS
 .DS_Store
-.turbo/
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.pem
+.vercel
 .mcp.json
+next-env.d.ts
+CLAUDE.md
 docs-hesoyam/
 package-lock.json
+coverage/
