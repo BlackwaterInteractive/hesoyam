@@ -1,7 +1,11 @@
 import { config } from 'dotenv';
 
-// Load environment variables
-config();
+// Load environment-specific .env file
+// Usage: NODE_ENV=staging npm start → loads .env.staging
+// Default: loads .env
+const envFile = process.env.NODE_ENV ? `.env.${process.env.NODE_ENV}` : '.env';
+config({ path: envFile });
+config(); // fallback to .env for any missing vars
 
 function requireEnv(key: string): string {
   const value = process.env[key];
