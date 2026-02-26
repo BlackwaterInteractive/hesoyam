@@ -17,6 +17,9 @@ export interface ActiveSession {
   userId: string;       // Hesoyam user ID
   discordId: string;    // Discord user ID
   gameName: string;
+  gameId: string | null;
+  gameSlug: string;
+  coverUrl: string | null;
   startedAt: Date;
   lastUpdate: Date;
   lastBroadcast: number; // Timestamp (ms) of last heartbeat broadcast
@@ -33,6 +36,16 @@ export interface GameActivity {
   startedAt: Date | null;
   largeImageUrl: string | null;
   smallImageUrl: string | null;
+}
+
+/**
+ * Resolved game data from the database (IGDB cover, slug, etc.)
+ */
+export interface ResolvedGameData {
+  id: string | null;
+  name: string;
+  slug: string;
+  cover_url: string | null;
 }
 
 /**

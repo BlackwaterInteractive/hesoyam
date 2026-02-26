@@ -45,34 +45,47 @@ export function LiveSessionCard({
   )
   const [elapsed, setElapsed] = useState('')
   const prevLiveSessionRef = useRef<LiveSessionData | null>(initialSession)
+  const hasFetchedForPresenceRef = useRef(false)
 
   // Subscribe to real-time presence broadcasts (instant updates)
   const presence = useGamePresence(userId)
 
-  // Build session data from presence if available, otherwise fall back to DB
-  const liveSession = useMemo<LiveSessionData | null>(() => {
-    if (presence) {
-      return {
-        session: {
-          id: `presence-${presence.game_id}`,
-          user_id: presence.user_id,
-          game_id: presence.game_id,
-          game_name: presence.game_name,
-          started_at: presence.started_at,
-          ended_at: null,
-          duration_secs: 0,
-          active_secs: 0,
-          idle_secs: 0,
-          source: 'discord' as const,
-          created_at: presence.started_at,
-          updated_at: new Date().toISOString(),
-        },
-        game: {
-          id: presence.game_id,
+  // Fetch full game data from DB for the active session
+  const fetchDbSession = useCallback(async () => {
+    if (isStaging) {
+      console.debug('[LiveSession] fetchDbSession called')
+    }
+    const supabase = createClient()
+    const { data: sessions } = await supabase
+      .from('game_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .is('ended_at', null)
+      .order('started_at', { ascending: false })
+      .limit(1)
+
+    if (sessions && sessions.length > 0) {
+      const session = sessions[0]
+
+      // Try to fetch game if game_id exists
+      let game: Game | null = null
+      if (session.game_id) {
+        const { data } = await supabase
+          .from('games')
+          .select('*')
+          .eq('id', session.game_id)
+          .single()
+        game = data
+      }
+
+      // For sessions without game_id, create a minimal game object
+      if (!game && session.game_name) {
+        game = {
+          id: `discord-${session.id}`,
           igdb_id: null,
-          name: presence.game_name,
-          slug: presence.game_slug,
-          cover_url: presence.cover_url,
+          name: session.game_name,
+          slug: session.game_name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          cover_url: null,
           genres: null,
           developer: null,
           release_year: null,
@@ -87,7 +100,98 @@ export function LiveSessionCard({
           first_release_date: null,
           igdb_updated_at: null,
           metadata_source: null,
+          created_at: session.created_at,
+        }
+      }
+
+      if (game) {
+        if (isStaging) {
+          console.debug('[LiveSession] dbSession loaded', {
+            sessionId: session.id,
+            gameName: game.name,
+            hasGenres: !!game.genres,
+            hasCover: !!game.cover_url,
+          })
+        }
+        setDbSession({ session, game })
+      } else {
+        setDbSession(null)
+      }
+    } else {
+      if (isStaging) {
+        console.debug('[LiveSession] fetchDbSession: no active session found')
+      }
+      setDbSession(null)
+    }
+  }, [userId])
+
+  // When presence starts, fetch DB session to get rich game metadata (genres, etc.)
+  useEffect(() => {
+    if (presence && !dbSession && !hasFetchedForPresenceRef.current) {
+      hasFetchedForPresenceRef.current = true
+      if (isStaging) {
+        console.debug('[LiveSession] Presence started, fetching DB session for metadata')
+      }
+      // Small delay to let the bot's DB INSERT complete
+      const timer = setTimeout(fetchDbSession, 1500)
+      return () => clearTimeout(timer)
+    }
+    if (!presence) {
+      hasFetchedForPresenceRef.current = false
+    }
+  }, [presence, dbSession, fetchDbSession])
+
+  // Build session data by merging presence (real-time) with dbSession (rich metadata).
+  // Presence provides instant updates (started_at, event status, cover_url).
+  // dbSession provides full game data (genres, developer, description, etc.).
+  const liveSession = useMemo<LiveSessionData | null>(() => {
+    if (presence) {
+      // Use DB game data if available, otherwise build minimal from presence
+      const dbGame = dbSession?.game
+      if (isStaging) {
+        console.debug('[LiveSession] Merging presence + dbSession', {
+          hasPresence: true,
+          hasDbSession: !!dbSession,
+          hasDbGame: !!dbGame,
+          dbGameGenres: dbGame?.genres,
+        })
+      }
+      return {
+        session: {
+          id: dbSession?.session.id ?? `presence-${presence.game_id}`,
+          user_id: presence.user_id,
+          game_id: presence.game_id,
+          game_name: presence.game_name,
+          started_at: presence.started_at,
+          ended_at: null,
+          duration_secs: 0,
+          active_secs: 0,
+          idle_secs: 0,
+          source: 'discord' as const,
           created_at: presence.started_at,
+          updated_at: new Date().toISOString(),
+        },
+        game: {
+          id: dbGame?.id ?? presence.game_id,
+          igdb_id: dbGame?.igdb_id ?? null,
+          name: presence.game_name,
+          slug: dbGame?.slug ?? presence.game_slug,
+          cover_url: presence.cover_url ?? dbGame?.cover_url ?? null,
+          genres: dbGame?.genres ?? null,
+          developer: dbGame?.developer ?? null,
+          release_year: dbGame?.release_year ?? null,
+          description: dbGame?.description ?? null,
+          publisher: dbGame?.publisher ?? null,
+          platforms: dbGame?.platforms ?? null,
+          screenshots: dbGame?.screenshots ?? null,
+          artwork_url: dbGame?.artwork_url ?? null,
+          igdb_url: dbGame?.igdb_url ?? null,
+          rating: dbGame?.rating ?? null,
+          rating_count: dbGame?.rating_count ?? null,
+          first_release_date: dbGame?.first_release_date ?? null,
+          igdb_updated_at: dbGame?.igdb_updated_at ?? null,
+          metadata_source: dbGame?.metadata_source ?? null,
+          created_at: dbGame?.created_at ?? presence.started_at,
         },
       }
     }
@@ -121,91 +225,6 @@ export function LiveSessionCard({
     const interval = setInterval(update, 1000)
     return () => clearInterval(interval)
   }, [liveSession])
-
-  // Subscribe to realtime changes on game_sessions (fallback for DB-based updates)
-  const fetchDbSession = useCallback(async () => {
-    const supabase = createClient()
-    const { data: sessions } = await supabase
-      .from('game_sessions')
-      .select('*')
-      .eq('user_id', userId)
-      .is('ended_at', null)
-      .order('started_at', { ascending: false })
-      .limit(1)
-
-    if (sessions && sessions.length > 0) {
-      const session = sessions[0]
-
-      // Try to fetch game if game_id exists (agent sessions)
-      let game: Game | null = null
-      if (session.game_id) {
-        const { data } = await supabase
-          .from('games')
-          .select('*')
-          .eq('id', session.game_id)
-          .single()
-        game = data
-      }
-
-      // For Discord sessions without game_id, create a minimal game object
-      if (!game && session.game_name) {
-        game = {
-          id: `discord-${session.id}`,
-          igdb_id: null,
-          name: session.game_name,
-          slug: session.game_name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-          cover_url: null,
-          genres: null,
-          developer: null,
-          release_year: null,
-          description: null,
-          publisher: null,
-          platforms: null,
-          screenshots: null,
-          artwork_url: null,
-          igdb_url: null,
-          rating: null,
-          rating_count: null,
-          first_release_date: null,
-          igdb_updated_at: null,
-          metadata_source: null,
-          created_at: session.created_at,
-        }
-      }
-
-      if (game) {
-        setDbSession({ session, game })
-      } else {
-        setDbSession(null)
-      }
-    } else {
-      setDbSession(null)
-    }
-  }, [userId])
-
-  useEffect(() => {
-    const supabase = createClient()
-
-    const channel = supabase
-      .channel('live-session-db')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'game_sessions',
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          fetchDbSession()
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [userId, fetchDbSession])
 
   if (!liveSession) return null
 

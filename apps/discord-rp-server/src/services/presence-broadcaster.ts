@@ -1,8 +1,19 @@
 import { getSupabase } from '../supabase/client.js';
 import { logger } from '../utils/logger.js';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import type { GameActivity, PresenceBroadcastPayload } from '../types/index.js';
-import { slugify } from '../types/index.js';
+import type { PresenceBroadcastPayload } from '../types/index.js';
+
+/**
+ * Resolved game data passed to broadcast functions.
+ * Contains IGDB-sourced cover_url and slug (not Discord activity images).
+ */
+export interface BroadcastGameData {
+  gameId: string | null;
+  gameName: string;
+  gameSlug: string;
+  coverUrl: string | null;
+  startedAt: Date;
+}
 
 // Cache of subscribed channels per userId
 const channels = new Map<string, RealtimeChannel>();
@@ -41,17 +52,17 @@ async function getChannel(userId: string): Promise<RealtimeChannel> {
 /**
  * Broadcast presence updates to Supabase Realtime channels
  */
-export async function broadcastPresence(
+async function broadcastPresence(
   userId: string,
-  game: GameActivity | null,
+  game: BroadcastGameData | null,
   event: 'start' | 'end' | 'heartbeat'
 ): Promise<void> {
   const payload: PresenceBroadcastPayload = {
     user_id: userId,
     event,
-    game_name: game?.name ?? null,
-    game_slug: game?.name ? slugify(game.name) : null,
-    cover_url: game?.largeImageUrl ?? null,
+    game_name: game?.gameName ?? null,
+    game_slug: game?.gameSlug ?? null,
+    cover_url: game?.coverUrl ?? null,
     started_at: game?.startedAt?.toISOString() ?? null,
   };
 
@@ -62,6 +73,7 @@ export async function broadcastPresence(
       userId,
       event,
       gameName: payload.game_name,
+      coverUrl: payload.cover_url,
       channel: `presence:${userId}`,
     });
 
@@ -71,7 +83,7 @@ export async function broadcastPresence(
       payload,
     });
 
-    logger.presence(userId, game?.name ?? null, event);
+    logger.presence(userId, game?.gameName ?? null, event);
     logger.debug('[BROADCAST] Presence broadcast sent successfully', {
       userId,
       event,
@@ -86,7 +98,7 @@ export async function broadcastPresence(
 /**
  * Broadcast game start event
  */
-export async function broadcastGameStart(userId: string, game: GameActivity): Promise<void> {
+export async function broadcastGameStart(userId: string, game: BroadcastGameData): Promise<void> {
   await broadcastPresence(userId, game, 'start');
 }
 
@@ -100,6 +112,6 @@ export async function broadcastGameEnd(userId: string): Promise<void> {
 /**
  * Broadcast heartbeat for active game
  */
-export async function broadcastHeartbeat(userId: string, game: GameActivity): Promise<void> {
+export async function broadcastHeartbeat(userId: string, game: BroadcastGameData): Promise<void> {
   await broadcastPresence(userId, game, 'heartbeat');
 }

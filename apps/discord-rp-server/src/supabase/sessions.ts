@@ -1,8 +1,13 @@
 import { getSupabase } from './client.js';
 import { logger } from '../utils/logger.js';
 import { resolveGame } from '../services/game-resolver.js';
-import type { GameSessionRow, GameActivity } from '../types/index.js';
+import type { GameSessionRow, GameActivity, ResolvedGameData } from '../types/index.js';
 import { slugify } from '../types/index.js';
+
+export interface CreateSessionResult {
+  session: GameSessionRow;
+  resolvedGame: ResolvedGameData;
+}
 
 /**
  * Get the active session for a user (if any)
@@ -141,7 +146,7 @@ async function tryReopenSession(
 export async function createSession(
   userId: string,
   game: GameActivity
-): Promise<GameSessionRow | null> {
+): Promise<CreateSessionResult | null> {
   const supabase = getSupabase();
 
   logger.info('[DB] createSession: starting', {
@@ -181,19 +186,22 @@ export async function createSession(
 
   // Check if this is a reopenable session (same game launch, toggled presence)
   const reopened = await tryReopenSession(userId, game.name, game.startedAt);
-  if (reopened) {
-    return reopened;
-  }
 
   // Resolve game name to a game record in our DB (fuzzy match → IGDB → minimal)
-  let gameId: string | null = null;
+  let resolvedGame: ResolvedGameData = {
+    id: null,
+    name: game.name,
+    slug: slugify(game.name),
+    cover_url: null,
+  };
   try {
     const resolved = await resolveGame(game.name);
-    gameId = resolved.id;
+    resolvedGame = resolved;
     logger.info('[DB] createSession: game resolved', {
       gameName: game.name,
       resolvedName: resolved.name,
       gameId: resolved.id,
+      coverUrl: resolved.cover_url,
     });
   } catch (error) {
     logger.error('[DB] createSession: game resolution failed', error, {
@@ -202,11 +210,15 @@ export async function createSession(
     });
   }
 
+  if (reopened) {
+    return { session: reopened, resolvedGame };
+  }
+
   const { data, error } = await supabase
     .from('game_sessions')
     .insert({
       user_id: userId,
-      game_id: gameId,
+      game_id: resolvedGame.id,
       game_name: game.name,
       started_at: startedAt.toISOString(),
       source: 'discord',
@@ -222,12 +234,12 @@ export async function createSession(
   logger.info('[DB] createSession: SESSION INSERTED', {
     userId,
     gameName: game.name,
-    gameId,
+    gameId: resolvedGame.id,
     sessionId: data.id,
     startedAt: startedAt.toISOString(),
     timestamp: new Date().toISOString(),
   });
-  return data as GameSessionRow;
+  return { session: data as GameSessionRow, resolvedGame };
 }
 
 /**

@@ -14,7 +14,8 @@ import {
 } from './presence-broadcaster.js';
 import { logger } from '../utils/logger.js';
 import { env } from '../config/env.js';
-import type { GameActivity, ActiveSession } from '../types/index.js';
+import { slugify } from '../types/index.js';
+import type { GameActivity, ActiveSession, ResolvedGameData } from '../types/index.js';
 
 // Grace period before actually closing a session (handles Discord presence flickers)
 const END_GRACE_MS = 30_000;
@@ -78,13 +79,11 @@ class SessionTracker {
         });
 
         await broadcastHeartbeat(session.userId, {
-          name: session.gameName,
-          applicationId: null,
-          details: null,
-          state: null,
+          gameId: session.gameId,
+          gameName: session.gameName,
+          gameSlug: session.gameSlug,
+          coverUrl: session.coverUrl,
           startedAt: session.startedAt,
-          largeImageUrl: null,
-          smallImageUrl: null,
         });
       }
     }, BROADCAST_HEARTBEAT_MS);
@@ -210,7 +209,7 @@ class SessionTracker {
           timestamp: new Date().toISOString(),
         });
       }
-      await this.handleHeartbeat(userId, discordId, newGame);
+      await this.handleHeartbeat(userId, discordId);
     }
   }
 
@@ -306,8 +305,8 @@ class SessionTracker {
       timestamp: new Date().toISOString(),
     });
 
-    const session = await createSession(userId, game);
-    if (!session) {
+    const result = await createSession(userId, game);
+    if (!result) {
       logger.error('[SESSION] handleGameStart: FAILED to create session', undefined, {
         userId,
         gameName: game.name,
@@ -315,12 +314,17 @@ class SessionTracker {
       return;
     }
 
-    // Track locally
+    const { session, resolvedGame } = result;
+
+    // Track locally with resolved game data
     this.activeSessions.set(discordId, {
       id: session.id,
       userId,
       discordId,
       gameName: game.name,
+      gameId: resolvedGame.id,
+      gameSlug: resolvedGame.slug,
+      coverUrl: resolvedGame.cover_url,
       startedAt: new Date(session.started_at),
       lastUpdate: new Date(),
       lastBroadcast: Date.now(),
@@ -332,12 +336,19 @@ class SessionTracker {
       gameName: game.name,
       sessionId: session.id,
       dbStartedAt: session.started_at,
+      coverUrl: resolvedGame.cover_url,
       activeSessCount: this.activeSessions.size,
       timestamp: new Date().toISOString(),
     });
 
-    // Broadcast presence
-    await broadcastGameStart(userId, game);
+    // Broadcast presence with resolved game data
+    await broadcastGameStart(userId, {
+      gameId: resolvedGame.id,
+      gameName: resolvedGame.name,
+      gameSlug: resolvedGame.slug,
+      coverUrl: resolvedGame.cover_url,
+      startedAt: new Date(session.started_at),
+    });
   }
 
   /**
@@ -400,18 +411,17 @@ class SessionTracker {
   private async handleHeartbeat(
     userId: string,
     discordId: string,
-    game: GameActivity
   ): Promise<void> {
     const activeSession = this.activeSessions.get(discordId);
     if (!activeSession) {
-      // Session not tracked locally, might have started before bot
-      logger.info('[SESSION] handleHeartbeat: no local session, creating one', {
+      // Session not tracked locally — this shouldn't happen since
+      // handleGameChange case 4 requires both oldGame and newGame.
+      // But if it does, we can't create a session without GameActivity.
+      logger.warn('[SESSION] handleHeartbeat: no local session found', {
         userId,
         discordId,
-        gameName: game.name,
         timestamp: new Date().toISOString(),
       });
-      await this.handleGameStart(userId, discordId, game);
       return;
     }
 
@@ -427,11 +437,17 @@ class SessionTracker {
       logger.debug('[SESSION] handleHeartbeat: broadcasting heartbeat', {
         userId,
         discordId,
-        gameName: game.name,
+        gameName: activeSession.gameName,
         timeSinceLastBroadcastMs: timeSinceLastBroadcast,
         sessionId: activeSession.id,
       });
-      await broadcastHeartbeat(userId, game);
+      await broadcastHeartbeat(userId, {
+        gameId: activeSession.gameId,
+        gameName: activeSession.gameName,
+        gameSlug: activeSession.gameSlug,
+        coverUrl: activeSession.coverUrl,
+        startedAt: activeSession.startedAt,
+      });
     }
   }
 
@@ -552,12 +568,30 @@ class SessionTracker {
       const currentGame = currentPresences.get(discordId);
 
       if (currentGame && currentGame.name === session.game_name) {
+        // Fetch resolved game data from DB if game_id exists
+        let gameSlug = slugify(session.game_name ?? '');
+        let coverUrl: string | null = null;
+        if (session.game_id) {
+          const { data: gameData } = await supabase
+            .from('games')
+            .select('slug, cover_url')
+            .eq('id', session.game_id)
+            .single();
+          if (gameData) {
+            gameSlug = gameData.slug;
+            coverUrl = gameData.cover_url;
+          }
+        }
+
         // User is still playing the same game — adopt the session
         this.activeSessions.set(discordId, {
           id: session.id,
           userId: session.user_id,
           discordId,
           gameName: session.game_name,
+          gameId: session.game_id,
+          gameSlug,
+          coverUrl,
           startedAt: new Date(session.started_at),
           lastUpdate: new Date(),
           lastBroadcast: Date.now(),
@@ -567,6 +601,7 @@ class SessionTracker {
           discordId,
           gameName: session.game_name,
           sessionId: session.id,
+          coverUrl,
         });
       } else {
         // User stopped playing or switched games — close the old session
