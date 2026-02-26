@@ -138,6 +138,13 @@ export function LiveSessionCard({
     }
     if (!presence) {
       hasFetchedForPresenceRef.current = false
+      // Clear stale dbSession when presence ends so the card disappears
+      if (dbSession) {
+        if (isStaging) {
+          console.debug('[LiveSession] Presence ended, clearing dbSession')
+        }
+        setDbSession(null)
+      }
     }
   }, [presence, dbSession, fetchDbSession])
 
