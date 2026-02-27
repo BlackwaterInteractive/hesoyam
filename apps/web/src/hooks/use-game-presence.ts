@@ -1,9 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 const isStaging = process.env.NODE_ENV !== 'production'
+
+const MAX_RETRIES = 5
+const BASE_RETRY_MS = 1000
 
 export interface GamePresence {
   user_id: string
@@ -20,45 +23,76 @@ export interface GamePresence {
  * Subscribe to real-time game presence updates via Supabase Broadcast.
  * Returns the current presence state or null if not playing.
  *
- * Includes staleness detection - clears presence if no heartbeat received for 15 seconds.
+ * Handles WebSocket disconnects with exponential backoff retry.
+ * Includes staleness detection - clears presence if no heartbeat received for 45 seconds.
  */
 export function useGamePresence(userId: string): GamePresence | null {
   const [presence, setPresence] = useState<GamePresence | null>(null)
+  const supabaseRef = useRef(createClient())
 
   useEffect(() => {
     if (!userId) return
 
-    const supabase = createClient()
+    const supabase = supabaseRef.current
+    let retryCount = 0
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null
+    let cancelled = false
 
-    const channel = supabase
-      .channel(`presence:${userId}`)
-      .on('broadcast', { event: 'game_presence' }, (message) => {
-        const payload = message.payload as Omit<GamePresence, 'received_at'>
+    function subscribe() {
+      if (cancelled) return
 
-        if (isStaging) {
-          if (payload.event === 'heartbeat') {
-            console.debug('[Presence] Heartbeat received:', payload.game_name)
-          } else {
-            console.debug('[Presence] Received broadcast:', payload.event, payload.game_name)
+      const channel = supabase
+        .channel(`presence:${userId}`, {
+          config: { broadcast: { self: false } },
+        })
+        .on('broadcast', { event: 'game_presence' }, (message) => {
+          const payload = message.payload as Omit<GamePresence, 'received_at'>
+
+          if (isStaging) {
+            if (payload.event === 'heartbeat') {
+              console.debug('[Presence] Heartbeat received:', payload.game_name)
+            } else {
+              console.debug('[Presence] Received broadcast:', payload.event, payload.game_name)
+            }
           }
-        }
 
-        if (payload.event === 'end') {
-          setPresence(null)
-        } else {
-          setPresence({
-            ...payload,
-            received_at: Date.now(),
-          })
-        }
-      })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`[Presence] Subscribed to presence:${userId}`)
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error(`[Presence] Failed to subscribe to presence:${userId}`)
-        }
-      })
+          if (payload.event === 'end') {
+            setPresence(null)
+          } else {
+            setPresence({
+              ...payload,
+              received_at: Date.now(),
+            })
+          }
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            retryCount = 0
+            console.log(`[Presence] Subscribed to presence:${userId}`)
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn(`[Presence] ${status} on presence:${userId}, retry ${retryCount + 1}/${MAX_RETRIES}`)
+
+            supabase.removeChannel(channel)
+
+            if (retryCount < MAX_RETRIES) {
+              const delay = BASE_RETRY_MS * Math.pow(2, retryCount)
+              retryCount++
+
+              if (isStaging) {
+                console.debug(`[Presence] Retrying in ${delay}ms`)
+              }
+
+              retryTimeout = setTimeout(subscribe, delay)
+            } else {
+              console.error(`[Presence] Max retries reached for presence:${userId}`)
+            }
+          }
+        })
+
+      return channel
+    }
+
+    const channel = subscribe()
 
     // Staleness check - clear if no heartbeat for 45 seconds
     // (heartbeats are sent every 30s, so 45s allows for network delays)
@@ -78,7 +112,9 @@ export function useGamePresence(userId: string): GamePresence | null {
     }, 5000)
 
     return () => {
-      supabase.removeChannel(channel)
+      cancelled = true
+      if (retryTimeout) clearTimeout(retryTimeout)
+      if (channel) supabase.removeChannel(channel)
       clearInterval(staleCheck)
     }
   }, [userId])

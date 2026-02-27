@@ -127,13 +127,21 @@ describe('verifyActiveSessions', () => {
       return map[discordId];
     });
 
-    // Default: createSession returns a session row
+    // Default: createSession returns a CreateSessionResult
     mockCreateSession.mockImplementation((_userId: string, game: { name: string }) => ({
-      id: `session-${Date.now()}`,
-      user_id: _userId,
-      game_name: game.name,
-      started_at: new Date().toISOString(),
-      source: 'discord',
+      session: {
+        id: `session-${Date.now()}`,
+        user_id: _userId,
+        game_name: game.name,
+        started_at: new Date().toISOString(),
+        source: 'discord',
+      },
+      resolvedGame: {
+        id: `game-${Date.now()}`,
+        name: game.name,
+        slug: game.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        cover_url: null,
+      },
     }));
   });
 
