@@ -46,9 +46,15 @@ export function LiveSessionCard({
   const [elapsed, setElapsed] = useState('')
   const prevLiveSessionRef = useRef<LiveSessionData | null>(initialSession)
   const hasFetchedForPresenceRef = useRef(false)
+  const presenceEverReceivedRef = useRef(false)
 
   // Subscribe to real-time presence broadcasts (instant updates)
   const presence = useGamePresence(userId)
+
+  // Track if we ever received a presence broadcast
+  if (presence) {
+    presenceEverReceivedRef.current = true
+  }
 
   // Fetch full game data from DB for the active session
   const fetchDbSession = useCallback(async () => {
@@ -138,8 +144,10 @@ export function LiveSessionCard({
     }
     if (!presence) {
       hasFetchedForPresenceRef.current = false
-      // Clear stale dbSession when presence ends so the card disappears
-      if (dbSession) {
+      // Only clear dbSession when presence truly ended (was received, then went null).
+      // Don't clear on initial mount when presence hasn't been received yet —
+      // that would kill the server-rendered initialSession.
+      if (dbSession && presenceEverReceivedRef.current) {
         if (isStaging) {
           console.debug('[LiveSession] Presence ended, clearing dbSession')
         }
