@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useGamePresence } from '@/hooks/use-game-presence'
 import type { GameSession, Game } from '@/lib/types'
 
-const isStaging = process.env.NODE_ENV !== 'production'
+const DEBUG_PRESENCE = true
 
 interface LiveSessionData {
   session: GameSession
@@ -58,7 +58,7 @@ export function LiveSessionCard({
 
   // Fetch full game data from DB for the active session
   const fetchDbSession = useCallback(async () => {
-    if (isStaging) {
+    if (DEBUG_PRESENCE) {
       console.debug('[LiveSession] fetchDbSession called')
     }
     const supabase = createClient()
@@ -111,7 +111,7 @@ export function LiveSessionCard({
       }
 
       if (game) {
-        if (isStaging) {
+        if (DEBUG_PRESENCE) {
           console.debug('[LiveSession] dbSession loaded', {
             sessionId: session.id,
             gameName: game.name,
@@ -124,7 +124,7 @@ export function LiveSessionCard({
         setDbSession(null)
       }
     } else {
-      if (isStaging) {
+      if (DEBUG_PRESENCE) {
         console.debug('[LiveSession] fetchDbSession: no active session found')
       }
       setDbSession(null)
@@ -135,7 +135,7 @@ export function LiveSessionCard({
   useEffect(() => {
     if (presence && !dbSession && !hasFetchedForPresenceRef.current) {
       hasFetchedForPresenceRef.current = true
-      if (isStaging) {
+      if (DEBUG_PRESENCE) {
         console.debug('[LiveSession] Presence started, fetching DB session for metadata')
       }
       // Small delay to let the bot's DB INSERT complete
@@ -148,7 +148,7 @@ export function LiveSessionCard({
       // Don't clear on initial mount when presence hasn't been received yet —
       // that would kill the server-rendered initialSession.
       if (dbSession && presenceEverReceivedRef.current) {
-        if (isStaging) {
+        if (DEBUG_PRESENCE) {
           console.debug('[LiveSession] Presence ended, clearing dbSession')
         }
         setDbSession(null)
@@ -163,7 +163,7 @@ export function LiveSessionCard({
     if (presence) {
       // Use DB game data if available, otherwise build minimal from presence
       const dbGame = dbSession?.game
-      if (isStaging) {
+      if (DEBUG_PRESENCE) {
         console.debug('[LiveSession] Merging presence + dbSession', {
           hasPresence: true,
           hasDbSession: !!dbSession,
@@ -221,7 +221,7 @@ export function LiveSessionCard({
     prevLiveSessionRef.current = liveSession
 
     if (wasPlaying && !isPlaying) {
-      if (isStaging) {
+      if (DEBUG_PRESENCE) {
         console.debug('[LiveSession] Session ended, refreshing dashboard')
       }
       router.refresh()
