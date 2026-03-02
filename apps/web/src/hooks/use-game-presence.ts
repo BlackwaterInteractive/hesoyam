@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-const isStaging = process.env.NODE_ENV !== 'production'
+const DEBUG_PRESENCE = true
 
 const MAX_RETRIES = 5
 const BASE_RETRY_MS = 1000
@@ -48,7 +48,7 @@ export function useGamePresence(userId: string): GamePresence | null {
         .on('broadcast', { event: 'game_presence' }, (message) => {
           const payload = message.payload as Omit<GamePresence, 'received_at'>
 
-          if (isStaging) {
+          if (DEBUG_PRESENCE) {
             if (payload.event === 'heartbeat') {
               console.debug('[Presence] Heartbeat received:', payload.game_name)
             } else {
@@ -78,7 +78,7 @@ export function useGamePresence(userId: string): GamePresence | null {
               const delay = BASE_RETRY_MS * Math.pow(2, retryCount)
               retryCount++
 
-              if (isStaging) {
+              if (DEBUG_PRESENCE) {
                 console.debug(`[Presence] Retrying in ${delay}ms`)
               }
 
@@ -99,7 +99,7 @@ export function useGamePresence(userId: string): GamePresence | null {
     const staleCheck = setInterval(() => {
       setPresence((prev) => {
         if (prev && Date.now() - prev.received_at > 45000) {
-          if (isStaging) {
+          if (DEBUG_PRESENCE) {
             console.debug('[Presence] Stale presence detected, clearing', {
               game: prev.game_name,
               staleSecs: Math.floor((Date.now() - prev.received_at) / 1000),
