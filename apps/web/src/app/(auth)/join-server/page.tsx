@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { debugLog } from '@/lib/debug-log'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
 export default function JoinServerPage() {
@@ -47,10 +48,10 @@ export default function JoinServerPage() {
           .eq('id', user.id)
           .single()
 
-        console.log('[join-server] profile check:', { in_guild: profile?.in_guild, userId: user.id })
+        debugLog('join-server', 'profile check:', { in_guild: profile?.in_guild, userId: user.id })
 
         if (profile?.in_guild) {
-          console.log('[join-server] already in guild, redirecting to dashboard')
+          debugLog('join-server', 'already in guild, redirecting to dashboard')
           router.push('/dashboard')
           router.refresh()
           return
@@ -68,7 +69,7 @@ export default function JoinServerPage() {
   useEffect(() => {
     if (!hasClickedJoin || !userId) return
 
-    console.log('[join-server] subscribing to realtime for user:', userId)
+    debugLog('join-server', 'subscribing to realtime for user:', { userId })
 
     const supabase = createClient()
     const channel = supabase
@@ -82,10 +83,10 @@ export default function JoinServerPage() {
           filter: `id=eq.${userId}`,
         },
         (payload) => {
-          console.log('[join-server] realtime payload received:', payload)
-          console.log('[join-server] in_guild value:', payload.new.in_guild)
+          debugLog('join-server', 'realtime payload received:', payload)
+          debugLog('join-server', 'in_guild value:', { in_guild: payload.new.in_guild })
           if (payload.new.in_guild === true) {
-            console.log('[join-server] guild join detected! redirecting in 1.5s...')
+            debugLog('join-server', 'guild join detected! redirecting in 1.5s...')
             setJoined(true)
             setTimeout(() => {
               router.push('/dashboard')
@@ -95,19 +96,19 @@ export default function JoinServerPage() {
         }
       )
       .subscribe((status) => {
-        console.log('[join-server] realtime subscription status:', status)
+        debugLog('join-server', 'realtime subscription status:', { status })
       })
 
     channelRef.current = channel
 
     return () => {
-      console.log('[join-server] cleaning up realtime channel')
+      debugLog('join-server', 'cleaning up realtime channel')
       supabase.removeChannel(channel)
     }
   }, [hasClickedJoin, userId, router])
 
   function handleJoinClick() {
-    console.log('[join-server] join button clicked, inviteUrl:', inviteUrl)
+    debugLog('join-server', 'join button clicked', { inviteUrl })
     setHasClickedJoin(true)
     if (inviteUrl) {
       window.open(inviteUrl, '_blank', 'noopener,noreferrer')
