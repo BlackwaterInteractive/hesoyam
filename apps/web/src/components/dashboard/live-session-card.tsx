@@ -5,8 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useGamePresence } from '@/hooks/use-game-presence'
 import type { GameSession, Game } from '@/lib/types'
-
-const DEBUG_PRESENCE = true
+import { debugLog } from '@/lib/debug-log'
 
 interface LiveSessionData {
   session: GameSession
@@ -58,9 +57,7 @@ export function LiveSessionCard({
 
   // Fetch full game data from DB for the active session
   const fetchDbSession = useCallback(async () => {
-    if (DEBUG_PRESENCE) {
-      console.debug('[LiveSession] fetchDbSession called')
-    }
+    debugLog('LiveSession', 'fetchDbSession called')
     const supabase = createClient()
     const { data: sessions } = await supabase
       .from('game_sessions')
@@ -111,22 +108,18 @@ export function LiveSessionCard({
       }
 
       if (game) {
-        if (DEBUG_PRESENCE) {
-          console.debug('[LiveSession] dbSession loaded', {
-            sessionId: session.id,
-            gameName: game.name,
-            hasGenres: !!game.genres,
-            hasCover: !!game.cover_url,
-          })
-        }
+        debugLog('LiveSession', 'dbSession loaded', {
+          sessionId: session.id,
+          gameName: game.name,
+          hasGenres: !!game.genres,
+          hasCover: !!game.cover_url,
+        })
         setDbSession({ session, game })
       } else {
         setDbSession(null)
       }
     } else {
-      if (DEBUG_PRESENCE) {
-        console.debug('[LiveSession] fetchDbSession: no active session found')
-      }
+      debugLog('LiveSession', 'fetchDbSession: no active session found')
       setDbSession(null)
     }
   }, [userId])
@@ -135,9 +128,7 @@ export function LiveSessionCard({
   useEffect(() => {
     if (presence && !dbSession && !hasFetchedForPresenceRef.current) {
       hasFetchedForPresenceRef.current = true
-      if (DEBUG_PRESENCE) {
-        console.debug('[LiveSession] Presence started, fetching DB session for metadata')
-      }
+      debugLog('LiveSession', 'Presence started, fetching DB session for metadata')
       // Small delay to let the bot's DB INSERT complete
       const timer = setTimeout(fetchDbSession, 1500)
       return () => clearTimeout(timer)
@@ -148,9 +139,7 @@ export function LiveSessionCard({
       // Don't clear on initial mount when presence hasn't been received yet —
       // that would kill the server-rendered initialSession.
       if (dbSession && presenceEverReceivedRef.current) {
-        if (DEBUG_PRESENCE) {
-          console.debug('[LiveSession] Presence ended, clearing dbSession')
-        }
+        debugLog('LiveSession', 'Presence ended, clearing dbSession')
         setDbSession(null)
       }
     }
@@ -163,14 +152,12 @@ export function LiveSessionCard({
     if (presence) {
       // Use DB game data if available, otherwise build minimal from presence
       const dbGame = dbSession?.game
-      if (DEBUG_PRESENCE) {
-        console.debug('[LiveSession] Merging presence + dbSession', {
-          hasPresence: true,
-          hasDbSession: !!dbSession,
-          hasDbGame: !!dbGame,
-          dbGameGenres: dbGame?.genres,
-        })
-      }
+      debugLog('LiveSession', 'Merging presence + dbSession', {
+        hasPresence: true,
+        hasDbSession: !!dbSession,
+        hasDbGame: !!dbGame,
+        dbGameGenres: dbGame?.genres,
+      })
       return {
         session: {
           id: dbSession?.session.id ?? `presence-${presence.game_id}`,
@@ -221,9 +208,7 @@ export function LiveSessionCard({
     prevLiveSessionRef.current = liveSession
 
     if (wasPlaying && !isPlaying) {
-      if (DEBUG_PRESENCE) {
-        console.debug('[LiveSession] Session ended, refreshing dashboard')
-      }
+      debugLog('LiveSession', 'Session ended, refreshing dashboard')
       router.refresh()
     }
   }, [liveSession, router])
