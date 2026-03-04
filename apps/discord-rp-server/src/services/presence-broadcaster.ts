@@ -1,6 +1,5 @@
 import { getSupabase } from '../supabase/client.js';
 import { logger } from '../utils/logger.js';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { PresenceBroadcastPayload } from '../types/index.js';
 
 /**
@@ -15,42 +14,10 @@ export interface BroadcastGameData {
   startedAt: Date;
 }
 
-// Cache of subscribed channels per userId
-const channels = new Map<string, RealtimeChannel>();
-
 /**
- * Get or create a subscribed channel for a user.
- * Channels must be subscribed before sending broadcasts via WebSocket.
- */
-async function getChannel(userId: string): Promise<RealtimeChannel> {
-  const existing = channels.get(userId);
-  if (existing) return existing;
-
-  const supabase = getSupabase();
-  const channel = supabase.channel(`presence:${userId}`);
-
-  return new Promise((resolve, reject) => {
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        channels.set(userId, channel);
-        logger.debug('[BROADCAST] Channel subscribed', {
-          userId,
-          channel: `presence:${userId}`,
-        });
-        resolve(channel);
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        logger.error('[BROADCAST] Channel subscription failed', undefined, {
-          userId,
-          status,
-        });
-        reject(new Error(`Channel subscription failed: ${status}`));
-      }
-    });
-  });
-}
-
-/**
- * Broadcast presence updates to Supabase Realtime channels
+ * Broadcast presence updates via Supabase Realtime HTTP broadcast.
+ * Uses httpSend() instead of WebSocket channel.send() — no subscription needed.
+ * This bypasses GCP e2-micro's broken WebSocket data frame handling.
  */
 async function broadcastPresence(
   userId: string,
@@ -67,9 +34,10 @@ async function broadcastPresence(
   };
 
   try {
-    const channel = await getChannel(userId);
+    const supabase = getSupabase();
+    const channel = supabase.channel(`presence:${userId}`);
 
-    logger.debug('[BROADCAST] Sending presence broadcast', {
+    logger.debug('[BROADCAST] Sending presence broadcast via HTTP', {
       userId,
       event,
       gameName: payload.game_name,
@@ -77,20 +45,14 @@ async function broadcastPresence(
       channel: `presence:${userId}`,
     });
 
-    await channel.send({
-      type: 'broadcast',
-      event: 'game_presence',
-      payload,
-    });
+    await channel.httpSend('game_presence', payload);
 
     logger.presence(userId, game?.gameName ?? null, event);
-    logger.debug('[BROADCAST] Presence broadcast sent successfully', {
+    logger.debug('[BROADCAST] Presence broadcast sent successfully via HTTP', {
       userId,
       event,
     });
   } catch (error) {
-    // If channel failed, remove from cache so next attempt creates a fresh one
-    channels.delete(userId);
     logger.error('Failed to broadcast presence', error, { userId, event });
   }
 }
