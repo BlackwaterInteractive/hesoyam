@@ -239,7 +239,7 @@ export type Database = {
           id: string
           user_id: string
           game_id: string
-          status: 'playing' | 'completed' | 'want_to_play' | 'dropped' | 'shelved'
+          status: 'want_to_play' | 'played' | 'completed'
           notes: string | null
           personal_rating: number | null
           added_at: string
@@ -249,7 +249,7 @@ export type Database = {
           id?: string
           user_id: string
           game_id: string
-          status?: 'playing' | 'completed' | 'want_to_play' | 'dropped' | 'shelved'
+          status?: 'want_to_play' | 'played' | 'completed'
           notes?: string | null
           personal_rating?: number | null
           added_at?: string
@@ -259,7 +259,7 @@ export type Database = {
           id?: string
           user_id?: string
           game_id?: string
-          status?: 'playing' | 'completed' | 'want_to_play' | 'dropped' | 'shelved'
+          status?: 'want_to_play' | 'played' | 'completed'
           notes?: string | null
           personal_rating?: number | null
           added_at?: string
@@ -377,4 +377,4 @@ export type Game = Tables<'games'>
 export type GameSession = Tables<'game_sessions'>
 export type UserGame = Tables<'user_games'>
 export type UserGameLibrary = Tables<'user_game_library'>
-export type GameStatus = 'playing' | 'completed' | 'want_to_play' | 'dropped' | 'shelved'
+export type GameStatus = 'want_to_play' | 'played' | 'completed'

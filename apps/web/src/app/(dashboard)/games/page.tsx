@@ -18,8 +18,8 @@ export default async function GamesPage() {
     redirect('/login')
   }
 
-  // Fetch library entries with game data
-  const [libraryResult, userGamesResult] = await Promise.all([
+  // Fetch library entries, user_games stats, and recent sessions in parallel
+  const [libraryResult, userGamesResult, recentSessionsResult] = await Promise.all([
     supabase
       .from('user_game_library')
       .select('*, games(*)')
@@ -29,10 +29,25 @@ export default async function GamesPage() {
       .from('user_games')
       .select('*')
       .eq('user_id', user.id),
+    supabase
+      .from('game_sessions')
+      .select('game_id')
+      .eq('user_id', user.id)
+      .not('game_id', 'is', null)
+      .order('started_at', { ascending: false })
+      .limit(20),
   ])
 
   if (libraryResult.error) {
     console.error('Failed to fetch library:', libraryResult.error)
+  }
+
+  // Derive "Now Playing" — first 3 distinct game_ids from recent sessions
+  const currentlyPlayingGameIds = new Set<string>()
+  for (const session of recentSessionsResult.data ?? []) {
+    if (session.game_id && currentlyPlayingGameIds.size < 3) {
+      currentlyPlayingGameIds.add(session.game_id)
+    }
   }
 
   // Index user_games by game_id for quick lookup
@@ -58,13 +73,10 @@ export default async function GamesPage() {
     }))
 
   // Compute status counts
-  const statusCounts: Record<GameStatus | 'all', number> = {
-    all: games.length,
-    playing: 0,
-    completed: 0,
+  const statusCounts: Record<GameStatus, number> = {
     want_to_play: 0,
-    dropped: 0,
-    shelved: 0,
+    played: 0,
+    completed: 0,
   }
   for (const g of games) {
     statusCounts[g.libraryEntry.status as GameStatus]++
@@ -94,6 +106,7 @@ export default async function GamesPage() {
           games={games}
           statusCounts={statusCounts}
           libraryGameIds={libraryGameIds}
+          currentlyPlayingGameIds={currentlyPlayingGameIds}
         />
       </div>
     </div>

@@ -14,43 +14,60 @@ export interface GameWithStats {
 
 interface GameGridProps {
   games: GameWithStats[]
-  statusCounts: Record<GameStatus | 'all', number>
+  statusCounts: Record<GameStatus, number>
   libraryGameIds: string[]
+  currentlyPlayingGameIds: Set<string>
 }
 
-const STATUS_TABS: { value: GameStatus | 'all'; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'playing', label: 'Playing' },
+const STATUS_TABS: { value: GameStatus; label: string }[] = [
+  { value: 'played', label: 'Played' },
   { value: 'completed', label: 'Completed' },
   { value: 'want_to_play', label: 'Want to Play' },
-  { value: 'dropped', label: 'Dropped' },
-  { value: 'shelved', label: 'Shelved' },
 ]
 
 type SortOption = 'last_played' | 'name' | 'added' | 'most_played'
 
-const SORT_OPTIONS: { value: SortOption; label: string }[] = [
-  { value: 'added', label: 'Date Added' },
-  { value: 'last_played', label: 'Last Played' },
-  { value: 'name', label: 'Name A-Z' },
-  { value: 'most_played', label: 'Most Played' },
-]
+const TAB_SORT_OPTIONS: Record<GameStatus, { value: SortOption; label: string }[]> = {
+  want_to_play: [
+    { value: 'added', label: 'Last Added' },
+    { value: 'name', label: 'Name A-Z' },
+  ],
+  played: [
+    { value: 'last_played', label: 'Last Played' },
+    { value: 'added', label: 'Last Added' },
+    { value: 'name', label: 'Name A-Z' },
+    { value: 'most_played', label: 'Most Played' },
+  ],
+  completed: [
+    { value: 'added', label: 'Last Added' },
+    { value: 'name', label: 'Name A-Z' },
+    { value: 'most_played', label: 'Most Played' },
+  ],
+}
 
-export function GameGrid({ games, statusCounts, libraryGameIds }: GameGridProps) {
+const TAB_DEFAULT_SORT: Record<GameStatus, SortOption> = {
+  want_to_play: 'added',
+  played: 'last_played',
+  completed: 'added',
+}
+
+export function GameGrid({ games, statusCounts, libraryGameIds, currentlyPlayingGameIds }: GameGridProps) {
   const [search, setSearch] = useState('')
-  const [activeTab, setActiveTab] = useState<GameStatus | 'all'>('all')
-  const [sort, setSort] = useState<SortOption>('added')
+  const [activeTab, setActiveTab] = useState<GameStatus>('played')
+  const [sort, setSort] = useState<SortOption>('last_played')
   const [modalOpen, setModalOpen] = useState(false)
 
   const libraryGameIdSet = useMemo(() => new Set(libraryGameIds), [libraryGameIds])
 
-  const filtered = useMemo(() => {
-    let result = games
+  function handleTabChange(tab: GameStatus) {
+    setActiveTab(tab)
+    setSort(TAB_DEFAULT_SORT[tab])
+  }
 
-    // Filter by status tab
-    if (activeTab !== 'all') {
-      result = result.filter((g) => g.libraryEntry.status === activeTab)
-    }
+  const sortOptions = TAB_SORT_OPTIONS[activeTab]
+
+  const filtered = useMemo(() => {
+    let result = games.filter((g) => g.libraryEntry.status === activeTab)
 
     // Filter by search
     if (search.trim()) {
@@ -90,7 +107,7 @@ export function GameGrid({ games, statusCounts, libraryGameIds }: GameGridProps)
         {STATUS_TABS.map((tab) => (
           <button
             key={tab.value}
-            onClick={() => setActiveTab(tab.value)}
+            onClick={() => handleTabChange(tab.value)}
             className={cn(
               'px-3 py-1.5 text-sm font-medium transition-colors',
               activeTab === tab.value
@@ -131,7 +148,7 @@ export function GameGrid({ games, statusCounts, libraryGameIds }: GameGridProps)
           onChange={(e) => setSort(e.target.value as SortOption)}
           className="border border-zinc-800 bg-zinc-900 px-3 py-3 text-sm text-zinc-300 outline-none focus:border-emerald-500/50"
         >
-          {SORT_OPTIONS.map((opt) => (
+          {sortOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
         </select>
@@ -158,7 +175,13 @@ export function GameGrid({ games, statusCounts, libraryGameIds }: GameGridProps)
       {filtered.length > 0 ? (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map(({ game, userGame, libraryEntry }) => (
-            <GameCard key={game.id} game={game} userGame={userGame} libraryEntry={libraryEntry} />
+            <GameCard
+              key={game.id}
+              game={game}
+              userGame={userGame}
+              libraryEntry={libraryEntry}
+              isCurrentlyPlaying={currentlyPlayingGameIds.has(game.id)}
+            />
           ))}
         </div>
       ) : (
@@ -179,21 +202,23 @@ export function GameGrid({ games, statusCounts, libraryGameIds }: GameGridProps)
           </svg>
           {search.trim() ? (
             <p className="text-zinc-400">No games match your search.</p>
-          ) : activeTab !== 'all' ? (
-            <p className="text-zinc-400">No games with this status.</p>
           ) : (
             <>
               <h2 className="mb-2 text-lg font-semibold text-zinc-300">
-                No games in your library
+                No games in this category
               </h2>
               <p className="mb-4 max-w-sm text-center text-sm text-zinc-500">
-                Add games manually or install the desktop client to auto-track your gameplay.
+                {activeTab === 'want_to_play'
+                  ? 'Add games you want to play using the search above.'
+                  : activeTab === 'played'
+                    ? 'Start tracking games via Discord or the desktop agent to see them here.'
+                    : 'Mark games as completed from their detail page.'}
               </p>
               <button
                 onClick={() => setModalOpen(true)}
                 className="border border-emerald-700 bg-emerald-950 px-4 py-2 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-900"
               >
-                + Add Your First Game
+                + Add a Game
               </button>
             </>
           )}
