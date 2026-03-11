@@ -24,10 +24,8 @@ interface GameSearchModalProps {
 
 const STATUS_OPTIONS: { value: GameStatus; label: string }[] = [
   { value: 'want_to_play', label: 'Want to Play' },
-  { value: 'playing', label: 'Playing' },
+  { value: 'played', label: 'Played' },
   { value: 'completed', label: 'Completed' },
-  { value: 'shelved', label: 'Shelved' },
-  { value: 'dropped', label: 'Dropped' },
 ]
 
 export function GameSearchModal({ open, onClose, libraryGameIds }: GameSearchModalProps) {

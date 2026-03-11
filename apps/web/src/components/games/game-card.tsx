@@ -9,17 +9,16 @@ interface GameCardProps {
   game: Game
   userGame: UserGame | null
   libraryEntry: UserGameLibrary
+  isCurrentlyPlaying?: boolean
 }
 
 const STATUS_CONFIG: Record<GameStatus, { label: string; color: string }> = {
-  playing: { label: 'Playing', color: 'border-emerald-700 bg-emerald-950 text-emerald-400' },
-  completed: { label: 'Completed', color: 'border-green-700 bg-green-950 text-green-400' },
   want_to_play: { label: 'Want to Play', color: 'border-blue-700 bg-blue-950 text-blue-400' },
-  dropped: { label: 'Dropped', color: 'border-red-700 bg-red-950 text-red-400' },
-  shelved: { label: 'Shelved', color: 'border-amber-700 bg-amber-950 text-amber-400' },
+  played: { label: 'Played', color: 'border-zinc-600 bg-zinc-800 text-zinc-300' },
+  completed: { label: 'Completed', color: 'border-green-700 bg-green-950 text-green-400' },
 }
 
-export function GameCard({ game, userGame, libraryEntry }: GameCardProps) {
+export function GameCard({ game, userGame, libraryEntry, isCurrentlyPlaying }: GameCardProps) {
   const initial = game.name.charAt(0).toUpperCase()
   const statusInfo = STATUS_CONFIG[libraryEntry.status as GameStatus]
 
@@ -44,9 +43,15 @@ export function GameCard({ game, userGame, libraryEntry }: GameCardProps) {
 
           {/* Status badge */}
           <div className="absolute left-2 top-2">
-            <span className={cn('border px-2 py-0.5 text-[10px] font-medium', statusInfo.color)}>
-              {statusInfo.label}
-            </span>
+            {isCurrentlyPlaying ? (
+              <span className="border border-emerald-700 bg-emerald-950 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                Playing
+              </span>
+            ) : (
+              <span className={cn('border px-2 py-0.5 text-[10px] font-medium', statusInfo.color)}>
+                {statusInfo.label}
+              </span>
+            )}
           </div>
         </div>
 
@@ -55,6 +60,9 @@ export function GameCard({ game, userGame, libraryEntry }: GameCardProps) {
           <h3 className="truncate text-base font-semibold text-zinc-100 group-hover:text-emerald-400 transition-colors">
             {game.name}
           </h3>
+          {game.developer && (
+            <p className="truncate text-xs text-zinc-500">{game.developer}</p>
+          )}
 
           {userGame ? (
             <>

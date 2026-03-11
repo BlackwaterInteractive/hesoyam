@@ -11,11 +11,9 @@ interface GameLibraryActionsProps {
 }
 
 const STATUS_OPTIONS: { value: GameStatus; label: string; color: string }[] = [
-  { value: 'playing', label: 'Playing', color: 'border-emerald-700 bg-emerald-950 text-emerald-400 hover:bg-emerald-900' },
-  { value: 'completed', label: 'Completed', color: 'border-green-700 bg-green-950 text-green-400 hover:bg-green-900' },
   { value: 'want_to_play', label: 'Want to Play', color: 'border-blue-700 bg-blue-950 text-blue-400 hover:bg-blue-900' },
-  { value: 'shelved', label: 'Shelved', color: 'border-amber-700 bg-amber-950 text-amber-400 hover:bg-amber-900' },
-  { value: 'dropped', label: 'Dropped', color: 'border-red-700 bg-red-950 text-red-400 hover:bg-red-900' },
+  { value: 'played', label: 'Played', color: 'border-zinc-600 bg-zinc-800 text-zinc-300 hover:bg-zinc-700' },
+  { value: 'completed', label: 'Completed', color: 'border-green-700 bg-green-950 text-green-400 hover:bg-green-900' },
 ]
 
 export function GameLibraryActions({ gameId, libraryEntry }: GameLibraryActionsProps) {
