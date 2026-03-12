@@ -137,19 +137,30 @@ class SessionTracker {
 
     // Case 1: Game started (no game before, game now)
     if (!oldGame && newGame) {
-      // Cancel any pending end — the game came back (presence flicker)
+      // Cancel any pending end — but check if it's the same game or a different one
       if (this.cancelPendingEnd(discordId)) {
-        logger.info('[SESSION] FLICKER RECOVERY: Game reappeared, cancelled pending close', {
-          discordId,
-          gameName: newGame.name,
-          localSessionId: localSession?.id ?? null,
-          timestamp: new Date().toISOString(),
-        });
-        // Update the local session's lastUpdate
         const active = this.activeSessions.get(discordId);
-        if (active) {
+        if (active && active.gameName === newGame.name) {
+          // Same game reappeared — flicker recovery
+          logger.info('[SESSION] FLICKER RECOVERY: Same game reappeared, cancelled pending close', {
+            discordId,
+            gameName: newGame.name,
+            localSessionId: active.id,
+            timestamp: new Date().toISOString(),
+          });
           active.lastUpdate = new Date();
           return;
+        } else {
+          // Different game started during grace period — treat as game switch
+          logger.info('[SESSION] GAME SWITCH during grace period: closing old, starting new', {
+            discordId,
+            oldGame: active?.gameName ?? null,
+            newGame: newGame.name,
+            localSessionId: active?.id ?? null,
+            timestamp: new Date().toISOString(),
+          });
+          await this.handleGameEnd(userId, discordId);
+          // Fall through to handleGameStart below
         }
       }
       // Check if we already have a local session for this game — gateway reconnect detection
