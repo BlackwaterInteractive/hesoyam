@@ -97,7 +97,7 @@ export function Sidebar() {
         )}
       >
         {/* Brand */}
-        <div className="flex items-center pl-[40px] pt-[32px]">
+        <div className="flex h-[112px] shrink-0 items-center border-b border-[#282828] pl-[40px]">
           <span className="font-[family-name:var(--font-brand)] text-[36px] leading-none text-white">
             RAID
           </span>
@@ -113,9 +113,6 @@ export function Sidebar() {
             </svg>
           </button>
         </div>
-
-        {/* Divider */}
-        <div className="mt-[32px] h-px bg-[#282828]" />
 
         {/* Navigation */}
         <nav className="mt-[48px] flex flex-col gap-[24px] pl-[40px]">

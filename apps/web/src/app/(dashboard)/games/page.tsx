@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { GameGrid, type GameWithStats } from '@/components/games/game-grid'
+import { type GameWithStats } from '@/components/games/game-grid'
+import { LibraryView } from '@/components/library/library-view'
 import type { GameStatus } from '@/lib/types'
 
 export const metadata = {
@@ -85,30 +86,8 @@ export default async function GamesPage() {
   const libraryGameIds = games.map((g) => g.game.id)
 
   return (
-    <div className="min-h-screen bg-zinc-950">
-      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-zinc-100">
-              My Games
-            </h1>
-            <p className="mt-2 text-sm text-zinc-400">
-              {games.length > 0
-                ? `${games.length} ${games.length === 1 ? 'game' : 'games'} in your library`
-                : 'Your game library will appear here once you start tracking or add games.'}
-            </p>
-          </div>
-        </div>
-
-        {/* Content */}
-        <GameGrid
-          games={games}
-          statusCounts={statusCounts}
-          libraryGameIds={libraryGameIds}
-          currentlyPlayingGameIds={currentlyPlayingGameIds}
-        />
-      </div>
+    <div>
+      <LibraryView games={games} />
     </div>
   )
 }

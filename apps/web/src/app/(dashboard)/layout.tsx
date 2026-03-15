@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/layout/sidebar'
+import { DashboardHeader } from '@/components/layout/dashboard-header'
 
 export default async function DashboardLayout({
   children,
@@ -35,8 +36,7 @@ export default async function DashboardLayout({
       <Sidebar />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top divider aligned with sidebar's divider */}
-        <div className="h-px w-full bg-[#282828]" style={{ marginTop: 'calc(32px + 36px + 32px)' }} />
+        <DashboardHeader />
 
         <main className="flex-1 overflow-y-auto">
           {children}
