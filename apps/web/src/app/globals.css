@@ -1,5 +1,5 @@
 @import url("https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=DM+Serif+Display&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Bebas+Neue&display=swap");
 @import "tailwindcss";
 
 @font-face { font-family: "Gilroy"; src: url("/fonts/Gilroy-Thin.ttf") format("truetype"); font-weight: 100; font-style: normal; font-display: swap; }
@@ -32,6 +32,7 @@
   --font-body: "Satoshi", sans-serif;
   --font-display: "Gilroy", sans-serif;
   --font-serif: "DM Serif Display", serif;
+  --font-condensed: "Bebas Neue", sans-serif;
 
   /* Sidebar */
   --sidebar-width: 202px;
