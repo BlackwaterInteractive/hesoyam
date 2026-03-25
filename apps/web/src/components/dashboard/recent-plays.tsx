@@ -13,7 +13,7 @@ interface RecentPlaysProps {
 
 export function RecentPlays({ items }: RecentPlaysProps) {
   return (
-    <div className="group flex flex-[70] flex-col border border-[#282828] pl-[40px] pt-[32px] pr-[56px] pb-[32px] transition-colors duration-200 hover:bg-white">
+    <div className="group flex flex-[70] flex-col border-[0.5px] border-[#282828] pl-[40px] pt-[32px] pr-[56px] pb-[32px] transition-colors duration-200 hover:bg-white">
       {items.map((item, i) => (
         <div key={i}>
           {/* Session row */}

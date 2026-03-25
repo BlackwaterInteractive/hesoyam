@@ -13,7 +13,7 @@ interface StreakCardProps {
 
 export function StreakCard({ streakCount, streakLabel, days }: StreakCardProps) {
   return (
-    <div className="group flex flex-[45] items-center border border-[#282828] pl-[40px] transition-colors duration-200 hover:bg-white">
+    <div className="group flex flex-[45] items-center border-[0.5px] border-[#282828] pl-[40px] transition-colors duration-200 hover:bg-white">
       {/* Left: Streak number + label */}
       <div className="shrink-0">
         <p

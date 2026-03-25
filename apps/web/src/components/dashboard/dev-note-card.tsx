@@ -7,7 +7,7 @@ interface DevNoteCardProps {
 
 export function DevNoteCard({ title, subtitle, ctaLabel, ctaHref = '#' }: DevNoteCardProps) {
   return (
-    <div className="group flex flex-[30] flex-col border border-[#282828] pl-[40px] pt-[32px] pr-[40px] pb-[32px] transition-colors duration-200 hover:bg-white">
+    <div className="group flex flex-[30] flex-col border-[0.5px] border-[#282828] pl-[40px] pt-[32px] pr-[40px] pb-[32px] transition-colors duration-200 hover:bg-white">
       <p
         className="text-[24px] text-white group-hover:text-black transition-colors duration-200"
         style={{ fontFamily: 'var(--font-serif)', fontWeight: 400 }}

@@ -13,7 +13,7 @@ export function StatBar({ items }: StatBarProps) {
       {items.map((item, i) => (
         <div
           key={i}
-          className="group flex-[25] border border-[#282828] py-[32px] pl-[40px] transition-colors duration-200 hover:bg-white"
+          className="group flex-[25] border-[0.5px] border-[#282828] py-[32px] pl-[40px] transition-colors duration-200 hover:bg-white"
         >
           <p
             className="text-[16px] text-white group-hover:text-black transition-colors duration-200"

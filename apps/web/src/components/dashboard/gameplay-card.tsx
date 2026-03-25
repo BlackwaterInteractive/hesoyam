@@ -21,7 +21,7 @@ export function GameplayCard({
     glowStatus === 'live' ? 'bg-green-400' : 'bg-orange-300'
 
   return (
-    <div className="group flex flex-[55] min-w-0 overflow-hidden border border-[#282828] pb-[32px] pl-[40px] pt-[30px] transition-colors duration-200 hover:bg-white">
+    <div className="group flex flex-[55] min-w-0 overflow-hidden border-[0.5px] border-[#282828] pb-[32px] pl-[40px] pt-[30px] transition-colors duration-200 hover:bg-white">
       {/* Game Cover */}
       <div className="shrink-0" style={{ width: '97.38px', height: '132px' }}>
         {coverUrl ? (
