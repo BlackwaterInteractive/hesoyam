@@ -52,9 +52,7 @@ export default function SetupPasswordPage() {
       return
     }
 
-    const { error: updateError } = await supabase.auth.updateUser({
-      password,
-    })
+    const { error: updateError } = await supabase.auth.updateUser({ password })
 
     if (updateError) {
       setError(updateError.message)
@@ -79,20 +77,20 @@ export default function SetupPasswordPage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-white mb-1">
+      <h2
+        className="text-2xl font-bold text-white"
+        style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}
+      >
         Set a password
       </h2>
-      <p className="text-sm text-zinc-400 mb-6">
-        You'll use this password to sign in from the desktop app
+      <p className="mt-2 mb-8 text-sm text-zinc-500">
+        You&apos;ll use this to sign in from the desktop app
       </p>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-5">
         {/* Email (read-only) */}
         <div>
-          <label
-            htmlFor="email"
-            className="block text-sm font-medium text-zinc-300 mb-1.5"
-          >
+          <label htmlFor="email" className="block text-xs text-zinc-500 mb-2 uppercase tracking-widest">
             Email
           </label>
           <input
@@ -100,19 +98,16 @@ export default function SetupPasswordPage() {
             type="email"
             value={email}
             readOnly
-            className="w-full border border-zinc-700 bg-zinc-800/50 px-4 py-2.5 text-zinc-400 outline-none cursor-not-allowed"
+            className="w-full border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-sm text-zinc-500 outline-none cursor-not-allowed"
           />
-          <p className="mt-1.5 text-xs text-zinc-500">
-            This is the email linked to your Discord account
+          <p className="mt-1.5 text-xs text-zinc-600">
+            Linked to your Discord account
           </p>
         </div>
 
         {/* Password */}
         <div>
-          <label
-            htmlFor="password"
-            className="block text-sm font-medium text-zinc-300 mb-1.5"
-          >
+          <label htmlFor="password" className="block text-xs text-zinc-500 mb-2 uppercase tracking-widest">
             Password
           </label>
           <input
@@ -123,16 +118,13 @@ export default function SetupPasswordPage() {
             required
             minLength={8}
             placeholder="At least 8 characters"
-            className="w-full border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            className="w-full border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-zinc-600 outline-none transition focus:border-white/20 focus:bg-white/[0.06]"
           />
         </div>
 
         {/* Confirm Password */}
         <div>
-          <label
-            htmlFor="confirm_password"
-            className="block text-sm font-medium text-zinc-300 mb-1.5"
-          >
+          <label htmlFor="confirm_password" className="block text-xs text-zinc-500 mb-2 uppercase tracking-widest">
             Confirm Password
           </label>
           <input
@@ -143,12 +135,12 @@ export default function SetupPasswordPage() {
             required
             minLength={8}
             placeholder="Re-enter your password"
-            className="w-full border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            className="w-full border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-zinc-600 outline-none transition focus:border-white/20 focus:bg-white/[0.06]"
           />
         </div>
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
+          <div className="border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
             {error}
           </div>
         )}
@@ -156,28 +148,13 @@ export default function SetupPasswordPage() {
         <button
           type="submit"
           disabled={loading || password.length < 8}
-          className="w-full bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {loading ? (
-            <span className="inline-flex items-center gap-2">
-              <svg
-                className="h-4 w-4 animate-spin"
-                viewBox="0 0 24 24"
-                fill="none"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                />
+            <span className="inline-flex items-center justify-center gap-2">
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
               Saving...
             </span>

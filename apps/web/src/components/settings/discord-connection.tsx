@@ -57,7 +57,7 @@ export function DiscordConnection({ profile }: DiscordConnectionProps) {
 
         <p className="text-xs text-zinc-500">
           Your Discord account is linked automatically. Your gaming activity will be
-          tracked when you&apos;re in the Hesoyam Discord server and Discord detects a game.
+          tracked when you&apos;re in the RAID Discord server and Discord detects a game.
         </p>
       </div>
     </section>
