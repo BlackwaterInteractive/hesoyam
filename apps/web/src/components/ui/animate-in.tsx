@@ -40,7 +40,7 @@ export function AnimateIn({
       transition={{
         duration,
         delay: delay / 1000,
-        ease: [0.16, 1, 0.3, 1],
+        ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
       }}
     >
       {children}
@@ -96,7 +96,7 @@ export function StaggerItem({
         hidden: from === 'bottom' ? { opacity: 0, y: 24 } : { opacity: 0 },
         visible: { opacity: 1, y: 0, x: 0 },
       }}
-      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] }}
     >
       {children}
     </motion.div>
