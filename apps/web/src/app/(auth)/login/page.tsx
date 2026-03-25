@@ -2,7 +2,17 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
+
+const item = {
+  hidden: { opacity: 0, y: 16 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, delay: i * 0.07, ease: [0.16, 1, 0.3, 1] },
+  }),
+}
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
@@ -11,9 +21,7 @@ export default function LoginPage() {
   async function handleDiscordLogin() {
     setError(null)
     setLoading(true)
-
     const supabase = createClient()
-
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'discord',
       options: {
@@ -21,7 +29,6 @@ export default function LoginPage() {
         scopes: 'identify email guilds.members.read',
       },
     })
-
     if (error) {
       setError(error.message)
       setLoading(false)
@@ -29,43 +36,43 @@ export default function LoginPage() {
   }
 
   return (
-    <div>
-      <h2 className="text-2xl font-bold text-white mb-1">Welcome back</h2>
-      <p className="text-sm text-zinc-400 mb-6">
-        Sign in to your account to continue
-      </p>
+    <motion.div initial="hidden" animate="visible">
+      <motion.div custom={0} variants={item}>
+        <h2
+          className="text-2xl font-bold text-white"
+          style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}
+        >
+          Welcome back
+        </h2>
+        <p className="mt-2 mb-8 text-sm text-zinc-500">
+          Sign in to continue to RAID
+        </p>
+      </motion.div>
 
       {error && (
-        <div className="mb-4 bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400"
+        >
           {error}
-        </div>
+        </motion.div>
       )}
 
-      <button
+      <motion.button
+        custom={1}
+        variants={item}
         onClick={handleDiscordLogin}
         disabled={loading}
-        className="w-full flex items-center justify-center gap-3 bg-[#5865F2] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4752C4] disabled:opacity-50 disabled:cursor-not-allowed"
+        whileHover={{ scale: 1.01 }}
+        whileTap={{ scale: 0.99 }}
+        className="w-full flex items-center justify-center gap-3 bg-[#5865F2] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#4752C4] disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? (
           <span className="inline-flex items-center gap-2">
-            <svg
-              className="h-4 w-4 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
+            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
             Connecting...
           </span>
@@ -77,17 +84,14 @@ export default function LoginPage() {
             Continue with Discord
           </>
         )}
-      </button>
+      </motion.button>
 
-      <p className="mt-6 text-center text-sm text-zinc-500">
-        Don&apos;t have an account?{' '}
-        <Link
-          href="/signup"
-          className="font-medium text-emerald-400 hover:text-emerald-300 transition"
-        >
-          Create one
+      <motion.p custom={2} variants={item} className="mt-8 text-center text-sm text-zinc-600">
+        No account?{' '}
+        <Link href="/signup" className="text-zinc-300 transition-colors hover:text-white">
+          Get started
         </Link>
-      </p>
-    </div>
+      </motion.p>
+    </motion.div>
   )
 }

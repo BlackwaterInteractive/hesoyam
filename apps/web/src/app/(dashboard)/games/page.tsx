@@ -5,7 +5,7 @@ import { LibraryView } from '@/components/library/library-view'
 import type { GameStatus } from '@/lib/types'
 
 export const metadata = {
-  title: 'My Games - Hesoyam',
+  title: 'My Games - RAID',
 }
 
 export default async function GamesPage() {

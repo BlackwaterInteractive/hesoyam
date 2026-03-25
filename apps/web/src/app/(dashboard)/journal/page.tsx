@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { CalendarView } from '@/components/calendar/calendar-view'
 
 export const metadata = {
-  title: 'Journal - Hesoyam',
+  title: 'Journal - RAID',
   description: 'Your gaming journal and calendar',
 }
 

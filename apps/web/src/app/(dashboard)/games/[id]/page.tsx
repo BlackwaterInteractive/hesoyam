@@ -21,7 +21,7 @@ export async function generateMetadata({ params }: GameDetailPageProps) {
     .single()
 
   return {
-    title: game ? `${game.name} - Hesoyam` : 'Game - Hesoyam',
+    title: game ? `${game.name} - RAID` : 'Game - RAID',
   }
 }
 
