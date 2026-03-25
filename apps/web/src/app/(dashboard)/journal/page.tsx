@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { CalendarHeatmap } from '@/components/journal/calendar-heatmap'
+import { CalendarView } from '@/components/calendar/calendar-view'
 
 export const metadata = {
   title: 'Journal - Hesoyam',
@@ -23,34 +23,30 @@ export default async function JournalPage() {
   const lastDay = new Date(year, month, 0).getDate()
   const monthEnd = `${year}-${String(month).padStart(2, '0')}-${lastDay}T23:59:59`
 
-  const { data: sessions } = await supabase
-    .from('game_sessions')
-    .select(
-      `
-      id, game_id, started_at, ended_at, duration_secs, active_secs, idle_secs, game_name,
-      games (id, name, cover_url, genres, slug)
-    `
-    )
-    .eq('user_id', user.id)
-    .gte('started_at', monthStart)
-    .lte('started_at', monthEnd)
-    .order('started_at', { ascending: true })
+  const [{ data: sessions }, { data: userGames }] = await Promise.all([
+    supabase
+      .from('game_sessions')
+      .select(
+        `id, game_id, game_name, started_at, ended_at, duration_secs,
+         games (id, name, cover_url, developer, publisher, slug)`
+      )
+      .eq('user_id', user.id)
+      .gte('started_at', monthStart)
+      .lte('started_at', monthEnd)
+      .order('started_at', { ascending: true }),
+    supabase
+      .from('user_games')
+      .select('game_id, total_time_secs')
+      .eq('user_id', user.id),
+  ])
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-white">Journal</h2>
-        <p className="mt-1 text-sm text-zinc-500">
-          Your gaming activity calendar
-        </p>
-      </div>
-
-      <CalendarHeatmap
-        userId={user.id}
-        initialSessions={(sessions as any[]) ?? []}
-        initialYear={year}
-        initialMonth={month}
-      />
-    </div>
+    <CalendarView
+      userId={user.id}
+      initialSessions={(sessions as any[]) ?? []}
+      initialUserGames={(userGames as any[]) ?? []}
+      initialYear={year}
+      initialMonth={month}
+    />
   )
 }
