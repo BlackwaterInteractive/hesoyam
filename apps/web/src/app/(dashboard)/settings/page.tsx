@@ -5,8 +5,8 @@ import { DiscordConnection } from '@/components/settings/discord-connection'
 import { TrackingStatus } from '@/components/settings/tracking-status'
 
 export const metadata = {
-  title: 'Settings - Hesoyam',
-  description: 'Manage your Hesoyam profile and account settings.',
+  title: 'Settings - RAID',
+  description: 'Manage your RAID profile and account settings.',
 }
 
 export default async function SettingsPage() {

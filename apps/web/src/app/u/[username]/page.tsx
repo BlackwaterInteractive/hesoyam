@@ -106,20 +106,20 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   if (!profile) {
     return {
-      title: 'Profile Not Found - Hesoyam',
+      title: 'Profile Not Found - RAID',
     }
   }
 
   const displayName = profile.display_name || profile.username || 'User'
   const description = profile.bio
-    ? `${displayName} on Hesoyam: ${profile.bio}`
-    : `${displayName}'s gaming profile on Hesoyam. Track your game time and stats.`
+    ? `${displayName} on RAID: ${profile.bio}`
+    : `${displayName}'s gaming profile on RAID. Track your game time and stats.`
 
   return {
-    title: `${displayName} (@${profile.username ?? username}) - Hesoyam`,
+    title: `${displayName} (@${profile.username ?? username}) - RAID`,
     description,
     openGraph: {
-      title: `${displayName} - Hesoyam`,
+      title: `${displayName} - RAID`,
       description,
       type: 'profile',
       ...(profile.avatar_url && { images: [{ url: profile.avatar_url }] }),

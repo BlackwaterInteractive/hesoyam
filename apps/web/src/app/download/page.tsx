@@ -7,7 +7,7 @@ export default function DownloadPage() {
       <nav className="sticky top-0 z-50 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-lg">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="text-xl font-bold tracking-tight text-white">
-            Hesoyam
+            RAID
           </Link>
           <div className="flex items-center gap-3">
             <Link
@@ -31,7 +31,7 @@ export default function DownloadPage() {
         <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl lg:text-5xl">
           Download{" "}
           <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
-            Hesoyam Tracker
+            RAID Tracker
           </span>
         </h1>
         <p className="mx-auto mt-4 max-w-xl text-lg text-zinc-400">
@@ -59,7 +59,7 @@ export default function DownloadPage() {
               </svg>
             </div>
             <h2 className="mt-5 text-lg font-semibold text-white">
-              Hesoyam for Windows
+              RAID for Windows
             </h2>
             <p className="mt-2 text-sm text-zinc-400">
               Windows 10 or later. Runs silently in your system tray and
@@ -103,7 +103,7 @@ export default function DownloadPage() {
               </svg>
             </div>
             <h2 className="mt-5 text-lg font-semibold text-white">
-              Hesoyam for macOS
+              RAID for macOS
             </h2>
             <p className="mt-2 text-sm text-zinc-400">
               Native macOS support is on the roadmap. Stay tuned for updates.
@@ -128,7 +128,7 @@ export default function DownloadPage() {
               </svg>
             </div>
             <h2 className="mt-5 text-lg font-semibold text-white">
-              Hesoyam for Linux
+              RAID for Linux
             </h2>
             <p className="mt-2 text-sm text-zinc-400">
               Linux support is on the roadmap. We will prioritize based on
@@ -148,7 +148,7 @@ export default function DownloadPage() {
             System Requirements
           </h2>
           <p className="mt-2 text-sm text-zinc-400">
-            The Hesoyam Tracker is designed to be lightweight and unobtrusive.
+            The RAID Tracker is designed to be lightweight and unobtrusive.
           </p>
           <ul className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
             <li className="flex items-start gap-3">
@@ -257,7 +257,7 @@ export default function DownloadPage() {
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 sm:flex-row">
           <div className="flex items-center gap-2">
             <span className="text-lg font-bold tracking-tight text-white">
-              Hesoyam
+              RAID
             </span>
           </div>
 
@@ -274,7 +274,7 @@ export default function DownloadPage() {
           </nav>
 
           <p className="text-sm text-zinc-500">
-            &copy; {new Date().getFullYear()} Hesoyam. All rights reserved.
+            &copy; {new Date().getFullYear()} RAID. All rights reserved.
           </p>
         </div>
       </footer>

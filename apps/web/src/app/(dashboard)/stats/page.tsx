@@ -5,7 +5,7 @@ import { StreakCards } from '@/components/stats/streak-cards'
 import { formatDuration } from '@/lib/utils'
 
 export const metadata = {
-  title: 'Stats & Insights - Hesoyam',
+  title: 'Stats & Insights - RAID',
   description: 'Your gaming statistics and insights',
 }
 
