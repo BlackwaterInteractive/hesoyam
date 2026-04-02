@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsIn, IsNotEmpty } from 'class-validator';
 
 export class StartSessionDto {
   @IsString()
@@ -8,6 +8,7 @@ export class StartSessionDto {
   discordId: string;
 
   @IsString()
+  @IsNotEmpty()
   gameName: string;
 
   @IsOptional()
@@ -18,6 +19,6 @@ export class StartSessionDto {
   @IsDateString()
   startedAt?: string;
 
-  @IsString()
+  @IsIn(['discord'])
   source: 'discord';
 }

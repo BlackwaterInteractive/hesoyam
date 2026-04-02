@@ -37,6 +37,15 @@ export class SessionsService {
       });
     }
 
+    // Same game already active — return existing session (idempotent)
+    if (activeSession && activeSession.game_name === dto.gameName) {
+      this.logger.info(
+        { sessionId: activeSession.id, gameName: dto.gameName },
+        'Session already active for this game, returning existing',
+      );
+      return { session: activeSession, reopened: false };
+    }
+
     // 2. Try reopen — same game, same Discord launch timestamp
     if (dto.startedAt) {
       const { data: lastSession } = await client
@@ -51,7 +60,7 @@ export class SessionsService {
       if (
         lastSession &&
         lastSession.game_name === dto.gameName &&
-        new Date(dto.startedAt) <= new Date(lastSession.started_at)
+        new Date(dto.startedAt).getTime() === new Date(lastSession.started_at).getTime()
       ) {
         this.logger.info(
           { sessionId: lastSession.id, gameName: dto.gameName },
@@ -68,16 +77,25 @@ export class SessionsService {
         );
 
         if (!reopenError) {
+          // Re-fetch the session to get the updated row after RPC
+          const { data: reopenedSession } = await client
+            .from('game_sessions')
+            .select('*')
+            .eq('id', lastSession.id)
+            .single();
+
+          const session = reopenedSession ?? lastSession;
+
           await this.presence.broadcast(dto.userId, {
             user_id: dto.userId,
             event: 'start',
-            game_name: lastSession.game_name,
-            game_slug: lastSession.game_slug ?? null,
-            cover_url: lastSession.cover_url ?? null,
-            started_at: lastSession.started_at,
+            game_name: session.game_name,
+            game_slug: session.game_slug ?? null,
+            cover_url: session.cover_url ?? null,
+            started_at: session.started_at,
           });
 
-          return { session: lastSession, reopened: true };
+          return { session, reopened: true };
         }
 
         this.logger.warn({ error: reopenError }, 'Failed to reopen session, creating new one');

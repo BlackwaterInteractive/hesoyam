@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsIn } from 'class-validator';
 
 export class EndSessionDto {
   @IsString()
@@ -8,6 +8,6 @@ export class EndSessionDto {
   discordId: string;
 
   @IsOptional()
-  @IsString()
-  source?: string;
+  @IsIn(['discord'])
+  source?: 'discord';
 }
