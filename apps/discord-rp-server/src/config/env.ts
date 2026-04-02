@@ -24,9 +24,13 @@ export const env = {
   discordBotToken: requireEnv('DISCORD_BOT_TOKEN'),
   discordGuildId: requireEnv('DISCORD_GUILD_ID'),
 
-  // Supabase
+  // Supabase (still needed for reads + Realtime subscriptions)
   supabaseUrl: requireEnv('SUPABASE_URL'),
   supabaseServiceKey: requireEnv('SUPABASE_SERVICE_KEY'),
+
+  // Backend API
+  apiBaseUrl: requireEnv('API_BASE_URL'),
+  apiKey: requireEnv('API_KEY'),
 
   // Server
   logLevel: optionalEnv('LOG_LEVEL', 'info'),

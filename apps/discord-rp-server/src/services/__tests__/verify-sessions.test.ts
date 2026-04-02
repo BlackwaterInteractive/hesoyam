@@ -33,26 +33,25 @@ const mockUserCache = {
 };
 vi.mock('../user-cache.js', () => ({ userCache: mockUserCache }));
 
-// Mock supabase/users
+// Mock supabase/users (reads that stay direct)
+const mockIsSessionOwnedByAgent = vi.fn().mockResolvedValue(false);
 vi.mock('../../supabase/users.js', () => ({
   isAgentActive: vi.fn().mockResolvedValue(false),
+  isSessionOwnedByAgent: mockIsSessionOwnedByAgent,
 }));
 
-// Mock supabase/sessions
+// Mock api/sessions
 const mockCreateSession = vi.fn();
 const mockCloseSession = vi.fn().mockResolvedValue(true);
-const mockIsSessionOwnedByAgent = vi.fn().mockResolvedValue(false);
-const mockTouchActiveSessions = vi.fn();
-vi.mock('../../supabase/sessions.js', () => ({
-  getActiveSession: vi.fn(),
+const mockHeartbeat = vi.fn();
+vi.mock('../../api/sessions.js', () => ({
   createSession: mockCreateSession,
   closeSession: mockCloseSession,
-  isSessionOwnedByAgent: mockIsSessionOwnedByAgent,
-  touchActiveSessions: mockTouchActiveSessions,
+  heartbeat: mockHeartbeat,
 }));
 
-// Mock presence-broadcaster
-vi.mock('../presence-broadcaster.js', () => ({
+// Mock api/presence
+vi.mock('../../api/presence.js', () => ({
   broadcastGameStart: vi.fn(),
   broadcastGameEnd: vi.fn(),
   broadcastHeartbeat: vi.fn(),

@@ -3,7 +3,8 @@ import { logger } from '../../utils/logger.js';
 import { userCache } from '../../services/user-cache.js';
 import { sessionTracker } from '../../services/session-tracker.js';
 import { env } from '../../config/env.js';
-import { syncGuildMembership } from '../../services/guild-sync.js';
+import { syncGuildMembership } from '../../api/guild-sync.js';
+import { getApiClient } from '../../api/client.js';
 import { extractGameActivity, type GameActivity } from '../../types/index.js';
 
 /**
@@ -36,9 +37,19 @@ export async function handleReady(client: Client<true>): Promise<void> {
   // Subscribe to real-time updates for new Discord connections
   userCache.subscribeToUpdates();
 
-  // Sync guild membership status for all tracked users
+  // Check backend API health
+  try {
+    const api = getApiClient();
+    const health = await api.get<{ status: string }>('/health/ready');
+    logger.info('Backend API health check', { status: health.status });
+  } catch (err) {
+    logger.warn('Backend API health check failed — API may be unavailable', { err });
+  }
+
+  // Sync guild membership status via API
   if (hesoyamGuild) {
-    await syncGuildMembership(hesoyamGuild);
+    const members = hesoyamGuild.members.cache.map((m) => ({ discordId: m.id }));
+    await syncGuildMembership(members);
   }
 
   // Reconcile open DB sessions with current presences
