@@ -9,6 +9,46 @@ interface ActionResult {
   error?: string
 }
 
+interface IgdbSearchResult {
+  id: number
+  name: string
+  slug: string
+  cover?: { id: number; image_id: string }
+  genres?: { id: number; name: string }[]
+  first_release_date?: number
+}
+
+export async function searchIgdb(query: string): Promise<{ results: IgdbSearchResult[]; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.access_token) {
+    return { results: [], error: 'No active session.' }
+  }
+
+  const apiUrl = process.env.BACKEND_API_URL
+  if (!apiUrl) {
+    return { results: [], error: 'Backend API URL not configured.' }
+  }
+
+  try {
+    const res = await fetch(`${apiUrl}/games/search?query=${encodeURIComponent(query)}&limit=10`, {
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+    })
+
+    if (!res.ok) {
+      return { results: [], error: 'IGDB search failed.' }
+    }
+
+    const data = await res.json()
+    return { results: data as IgdbSearchResult[] }
+  } catch {
+    return { results: [], error: 'Failed to connect to backend API.' }
+  }
+}
+
 export async function addToLibrary(gameId: string, status: GameStatus): Promise<ActionResult> {
   const supabase = await createClient()
 
@@ -86,20 +126,24 @@ export async function importAndAddToLibrary(igdbId: number, status: GameStatus):
     return { success: false, error: 'You must be signed in.' }
   }
 
-  // Get access token to call edge function
+  // Get access token to call backend API (JWT auth)
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) {
     return { success: false, error: 'No active session.' }
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const res = await fetch(`${supabaseUrl}/functions/v1/igdb-import-game`, {
+  const apiUrl = process.env.BACKEND_API_URL
+  if (!apiUrl) {
+    return { success: false, error: 'Backend API URL not configured.' }
+  }
+
+  const res = await fetch(`${apiUrl}/games/import`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${session.access_token}`,
     },
-    body: JSON.stringify({ igdb_id: igdbId }),
+    body: JSON.stringify({ igdbId }),
   })
 
   if (!res.ok) {
@@ -107,7 +151,7 @@ export async function importAndAddToLibrary(igdbId: number, status: GameStatus):
   }
 
   const data = await res.json()
-  const gameId = data.game?.id
+  const gameId = data.id
 
   if (!gameId) {
     return { success: false, error: 'Failed to get game ID after import.' }
