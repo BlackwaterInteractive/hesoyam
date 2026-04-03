@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useTransition, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { addToLibrary, importAndAddToLibrary } from '@/app/(dashboard)/games/actions'
+import { addToLibrary, importAndAddToLibrary, searchIgdb } from '@/app/(dashboard)/games/actions'
 import type { GameStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -86,12 +86,12 @@ export function GameSearchModal({ open, onClose, libraryGameIds }: GameSearchMod
     setResults(localResults)
     setSearching(false)
 
-    // Step 2: IGDB search — append results when they arrive
-    const igdbData = await supabase.functions.invoke('igdb-search', { body: { query: term } })
+    // Step 2: IGDB search via backend API — append results when they arrive
+    const igdbData = await searchIgdb(term)
 
     if (abortRef.current !== searchId) return
 
-    const igdbResults: any[] = igdbData.data?.results ?? []
+    const igdbResults = igdbData.results ?? []
 
     // Deduplicate by igdb_id: collect igdb_ids from local results
     const localIgdbIds = new Set(
@@ -99,13 +99,17 @@ export function GameSearchModal({ open, onClose, libraryGameIds }: GameSearchMod
     )
 
     const igdbMapped: SearchResult[] = igdbResults
-      .filter((r: any) => !localIgdbIds.has(r.igdb_id))
-      .map((r: any) => ({
-        igdb_id: r.igdb_id,
+      .filter((r) => !localIgdbIds.has(r.id))
+      .map((r) => ({
+        igdb_id: r.id,
         name: r.name,
-        cover_url: r.cover_url,
-        release_year: r.release_year,
-        genres: r.genres,
+        cover_url: r.cover?.image_id
+          ? `https://images.igdb.com/igdb/image/upload/t_cover_big/${r.cover.image_id}.jpg`
+          : null,
+        release_year: r.first_release_date
+          ? new Date(r.first_release_date * 1000).getFullYear()
+          : null,
+        genres: r.genres?.map((g) => g.name) ?? null,
         source: 'igdb' as const,
       }))
 
