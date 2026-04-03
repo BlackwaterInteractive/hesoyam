@@ -1,6 +1,6 @@
 import { getSupabase } from './client.js';
 import { logger } from '../utils/logger.js';
-import type { ProfileRow, MonitoredUser } from '../types/index.js';
+import type { ProfileRow, MonitoredUser, GameSessionRow } from '../types/index.js';
 
 /**
  * Fetch all users who have connected their Discord account
@@ -69,4 +69,31 @@ export async function getUserByDiscordId(discordId: string): Promise<MonitoredUs
     discordId: row.discord_id!,
     agentLastSeen: row.agent_last_seen ? new Date(row.agent_last_seen) : null,
   };
+}
+
+/**
+ * Check if a user's active session is owned by the agent (not Discord).
+ * Read-only check used to avoid conflicting with agent tracking.
+ */
+export async function isSessionOwnedByAgent(userId: string): Promise<boolean> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from('game_sessions')
+    .select('id, source')
+    .eq('user_id', userId)
+    .is('ended_at', null)
+    .single();
+
+  if (error || !data) return false;
+
+  const result = (data as GameSessionRow).source === 'agent';
+  if (result) {
+    logger.info('[DB] isSessionOwnedByAgent: YES', {
+      userId,
+      sessionId: data.id,
+      source: (data as GameSessionRow).source,
+    });
+  }
+  return result;
 }
