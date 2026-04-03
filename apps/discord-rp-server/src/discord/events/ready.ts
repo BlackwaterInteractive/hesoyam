@@ -48,7 +48,8 @@ export async function handleReady(client: Client<true>): Promise<void> {
 
   // Sync guild membership status via API
   if (hesoyamGuild) {
-    const members = hesoyamGuild.members.cache.map((m) => ({ discordId: m.id }));
+    const allMembers = await hesoyamGuild.members.fetch();
+    const members = allMembers.map((m) => ({ discordId: m.id }));
     await syncGuildMembership(members);
   }
 
