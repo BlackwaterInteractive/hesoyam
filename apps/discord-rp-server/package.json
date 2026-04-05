@@ -4,7 +4,7 @@
   "description": "Discord Rich Presence tracking server for Hesoyam",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "NODE_ENV=staging tsx watch src/index.ts",
     "dev:stage": "NODE_ENV=staging tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",

@@ -2,14 +2,20 @@
   "name": "hesoyam",
   "private": true,
   "scripts": {
-    "dev:web": "pnpm --filter @hesoyam/web dev",
-    "build:web": "pnpm --filter @hesoyam/web build",
-    "lint:web": "pnpm --filter @hesoyam/web lint",
+    "dev:web": "pnpm --filter web dev",
+    "build:web": "pnpm --filter web build",
+    "lint:web": "pnpm --filter web lint",
     "dev:discord": "pnpm --filter @hesoyam/discord-rp-server dev",
     "build:discord": "pnpm --filter @hesoyam/discord-rp-server build",
-    "start:discord": "pnpm --filter @hesoyam/discord-rp-server start"
+    "start:discord": "pnpm --filter @hesoyam/discord-rp-server start",
+    "run:backend": "pnpm --filter backend start:dev",
+    "run:web": "pnpm --filter web dev",
+    "run:bot": "pnpm --filter @hesoyam/discord-rp-server dev"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

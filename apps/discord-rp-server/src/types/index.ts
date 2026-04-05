@@ -104,6 +104,23 @@ export function extractGameActivity(activity: Activity): GameActivity | null {
 }
 
 /**
+ * Response from POST /sessions/start
+ */
+export interface ApiStartSessionResponse {
+  session: GameSessionRow;
+  resolvedGame?: ResolvedGameData & { igdb_id?: number | null };
+  reopened: boolean;
+}
+
+/**
+ * Result of creating a session (used by session-tracker)
+ */
+export interface CreateSessionResult {
+  session: GameSessionRow;
+  resolvedGame: ResolvedGameData;
+}
+
+/**
  * Generate a URL-friendly slug from a game name
  */
 export function slugify(name: string): string {

@@ -6,8 +6,12 @@ import { logger } from '../../utils/logger.js';
 
 /**
  * Handle a member joining the guild.
- * Updates in_guild directly for this member (no guild.members.fetch()).
+ * Updates in_guild directly via Supabase for this member.
  * Also ensures the new member is in the user cache.
+ *
+ * TODO: Add POST /discord/member-update API endpoint for individual member
+ * updates instead of direct Supabase write. The bulk /discord/guild-sync
+ * endpoint can't be used here — it would unflag all other members.
  */
 export async function handleGuildMemberAdd(member: GuildMember): Promise<void> {
   logger.info('Member joined guild', { discordId: member.id });
@@ -43,7 +47,9 @@ export async function handleGuildMemberAdd(member: GuildMember): Promise<void> {
 
 /**
  * Handle a member leaving the guild.
- * Updates in_guild directly for this member (no guild.members.fetch()).
+ * Updates in_guild directly via Supabase for this member.
+ *
+ * TODO: Move to API endpoint (same as handleGuildMemberAdd above).
  */
 export async function handleGuildMemberRemove(
   member: GuildMember | PartialGuildMember

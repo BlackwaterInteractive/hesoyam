@@ -1,21 +1,17 @@
 import { userCache } from './user-cache.js';
-import { isAgentActive } from '../supabase/users.js';
+import { isAgentActive, isSessionOwnedByAgent } from '../supabase/users.js';
 import {
-  getActiveSession,
   createSession,
   closeSession,
-  isSessionOwnedByAgent,
-  touchActiveSessions,
-} from '../supabase/sessions.js';
+  heartbeat,
+} from '../api/sessions.js';
 import {
-  broadcastGameStart,
-  broadcastGameEnd,
   broadcastHeartbeat,
-} from './presence-broadcaster.js';
+} from '../api/presence.js';
 import { logger } from '../utils/logger.js';
 import { env } from '../config/env.js';
 import { slugify } from '../types/index.js';
-import type { GameActivity, ActiveSession, ResolvedGameData } from '../types/index.js';
+import type { GameActivity, ActiveSession } from '../types/index.js';
 
 // Grace period before actually closing a session (handles Discord presence flickers)
 const END_GRACE_MS = 30_000;
@@ -51,12 +47,14 @@ class SessionTracker {
   startKeepalive(): void {
     if (this.keepaliveInterval) return;
 
+    // DB keepalive — call API heartbeat for each active session
     this.keepaliveInterval = setInterval(async () => {
       const sessions = Array.from(this.activeSessions.values());
       if (sessions.length === 0) return;
 
-      const sessionIds = sessions.map((s) => s.id);
-      await touchActiveSessions(sessionIds);
+      for (const session of sessions) {
+        await heartbeat(session.userId);
+      }
     }, DB_KEEPALIVE_MS);
 
     logger.info('[SESSION] DB keepalive started', { intervalMs: DB_KEEPALIVE_MS });
@@ -79,11 +77,10 @@ class SessionTracker {
         });
 
         await broadcastHeartbeat(session.userId, {
-          gameId: session.gameId,
-          gameName: session.gameName,
-          gameSlug: session.gameSlug,
-          coverUrl: session.coverUrl,
-          startedAt: session.startedAt,
+          name: session.gameName,
+          slug: session.gameSlug,
+          cover_url: session.coverUrl,
+          started_at: session.startedAt.toISOString(),
         });
       }
     }, BROADCAST_HEARTBEAT_MS);
@@ -284,7 +281,7 @@ class SessionTracker {
   }
 
   /**
-   * Handle game start
+   * Handle game start — delegates to backend API
    */
   private async handleGameStart(
     userId: string,
@@ -298,7 +295,7 @@ class SessionTracker {
       timestamp: new Date().toISOString(),
     });
 
-    // Check if session already owned by agent
+    // Check if session already owned by agent (direct Supabase read — no API endpoint)
     if (await isSessionOwnedByAgent(userId)) {
       logger.info('[SESSION] handleGameStart: SKIPPED — session owned by agent', {
         userId,
@@ -307,8 +304,8 @@ class SessionTracker {
       return;
     }
 
-    // Create session in database
-    logger.info('[SESSION] handleGameStart: creating DB session', {
+    // Create session via backend API (handles game resolution + presence broadcast)
+    logger.info('[SESSION] handleGameStart: creating session via API', {
       userId,
       discordId,
       gameName: game.name,
@@ -316,7 +313,7 @@ class SessionTracker {
       timestamp: new Date().toISOString(),
     });
 
-    const result = await createSession(userId, game);
+    const result = await createSession(userId, discordId, game);
     if (!result) {
       logger.error('[SESSION] handleGameStart: FAILED to create session', undefined, {
         userId,
@@ -352,18 +349,11 @@ class SessionTracker {
       timestamp: new Date().toISOString(),
     });
 
-    // Broadcast presence with resolved game data
-    await broadcastGameStart(userId, {
-      gameId: resolvedGame.id,
-      gameName: resolvedGame.name,
-      gameSlug: resolvedGame.slug,
-      coverUrl: resolvedGame.cover_url,
-      startedAt: new Date(session.started_at),
-    });
+    // No separate broadcast needed — the API broadcasts presence internally
   }
 
   /**
-   * Handle game end
+   * Handle game end — delegates to backend API
    */
   private async handleGameEnd(userId: string, discordId: string): Promise<void> {
     const localSession = this.activeSessions.get(discordId);
@@ -384,8 +374,8 @@ class SessionTracker {
       timestamp: new Date().toISOString(),
     });
 
-    // Close session in database
-    const closed = await closeSession(userId);
+    // Close session via backend API (handles presence broadcast internally)
+    const closed = await closeSession(userId, discordId);
 
     // Remove from local tracking
     this.activeSessions.delete(discordId);
@@ -399,21 +389,7 @@ class SessionTracker {
       timestamp: new Date().toISOString(),
     });
 
-    if (closed) {
-      // Broadcast presence end
-      logger.debug('[SESSION] handleGameEnd: broadcasting end event', {
-        userId,
-        discordId,
-        gameName: localSession?.gameName ?? null,
-        sessionId: localSession?.id ?? null,
-      });
-      await broadcastGameEnd(userId);
-    } else {
-      logger.debug('[SESSION] handleGameEnd: session not closed, skipping end broadcast', {
-        userId,
-        discordId,
-      });
-    }
+    // No separate broadcast needed — the API broadcasts presence end internally
   }
 
   /**
@@ -425,9 +401,6 @@ class SessionTracker {
   ): Promise<void> {
     const activeSession = this.activeSessions.get(discordId);
     if (!activeSession) {
-      // Session not tracked locally — this shouldn't happen since
-      // handleGameChange case 4 requires both oldGame and newGame.
-      // But if it does, we can't create a session without GameActivity.
       logger.warn('[SESSION] handleHeartbeat: no local session found', {
         userId,
         discordId,
@@ -440,7 +413,6 @@ class SessionTracker {
     activeSession.lastUpdate = new Date();
 
     // Broadcast heartbeat periodically (not on every presence update)
-    // Discord sends presence updates frequently, we don't need to broadcast all of them
     const now = Date.now();
     const timeSinceLastBroadcast = now - activeSession.lastBroadcast;
     if (timeSinceLastBroadcast >= 30000) { // 30 seconds
@@ -453,11 +425,10 @@ class SessionTracker {
         sessionId: activeSession.id,
       });
       await broadcastHeartbeat(userId, {
-        gameId: activeSession.gameId,
-        gameName: activeSession.gameName,
-        gameSlug: activeSession.gameSlug,
-        coverUrl: activeSession.coverUrl,
-        startedAt: activeSession.startedAt,
+        name: activeSession.gameName,
+        slug: activeSession.gameSlug,
+        cover_url: activeSession.coverUrl,
+        started_at: activeSession.startedAt.toISOString(),
       });
     }
   }
@@ -485,7 +456,7 @@ class SessionTracker {
 
     for (const session of sessions) {
       try {
-        await closeSession(session.userId);
+        await closeSession(session.userId, session.discordId);
         logger.info('[SESSION] closeAllSessions: session closed', {
           userId: session.userId,
           gameName: session.gameName,
@@ -511,7 +482,7 @@ class SessionTracker {
 
     // Clear pending end timers
     const pendingCount = this.pendingEnds.size;
-    for (const [discordId, timer] of this.pendingEnds) {
+    for (const [, timer] of this.pendingEnds) {
       clearTimeout(timer);
     }
     this.pendingEnds.clear();
@@ -526,6 +497,7 @@ class SessionTracker {
   /**
    * Reconcile open DB sessions with current Discord presences on startup.
    * Adopts sessions for users who are still playing, closes stale ones.
+   * NOTE: Reads from Supabase directly (read-only), writes via API.
    */
   async reconcileOnStartup(
     currentPresences: Map<string, GameActivity>
@@ -566,8 +538,8 @@ class SessionTracker {
       );
 
       if (!discordId) {
-        // User not in cache, close the orphaned session
-        await closeSession(session.user_id);
+        // User not in cache, close the orphaned session via API
+        await closeSession(session.user_id, '');
         logger.info('[SESSION] reconcileOnStartup: closed orphaned session (user not in cache)', {
           userId: session.user_id,
           gameName: session.game_name,
@@ -579,7 +551,7 @@ class SessionTracker {
       const currentGame = currentPresences.get(discordId);
 
       if (currentGame && currentGame.name === session.game_name) {
-        // Fetch resolved game data from DB if game_id exists
+        // Fetch resolved game data from DB if game_id exists (direct read)
         let gameSlug = slugify(session.game_name ?? '');
         let coverUrl: string | null = null;
         if (session.game_id) {
@@ -615,8 +587,8 @@ class SessionTracker {
           coverUrl,
         });
       } else {
-        // User stopped playing or switched games — close the old session
-        await closeSession(session.user_id);
+        // User stopped playing or switched games — close via API
+        await closeSession(session.user_id, discordId);
         logger.info('[SESSION] reconcileOnStartup: closed stale session', {
           userId: session.user_id,
           discordId,
