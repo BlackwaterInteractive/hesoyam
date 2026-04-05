@@ -103,6 +103,7 @@ export function LiveSessionCard({
           first_release_date: null,
           igdb_updated_at: null,
           metadata_source: null,
+          discord_application_id: null,
           created_at: session.created_at,
         }
       }
@@ -176,7 +177,7 @@ export function LiveSessionCard({
         game: {
           id: dbGame?.id ?? presence.game_id,
           igdb_id: dbGame?.igdb_id ?? null,
-          name: presence.game_name,
+          name: dbGame?.name ?? presence.game_name,
           slug: dbGame?.slug ?? presence.game_slug,
           cover_url: presence.cover_url ?? dbGame?.cover_url ?? null,
           genres: dbGame?.genres ?? null,
@@ -193,6 +194,7 @@ export function LiveSessionCard({
           first_release_date: dbGame?.first_release_date ?? null,
           igdb_updated_at: dbGame?.igdb_updated_at ?? null,
           metadata_source: dbGame?.metadata_source ?? null,
+          discord_application_id: dbGame?.discord_application_id ?? null,
           created_at: dbGame?.created_at ?? presence.started_at,
         },
       }

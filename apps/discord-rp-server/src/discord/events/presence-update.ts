@@ -21,30 +21,40 @@ export async function handlePresenceUpdate(
     return; // Not a Hesoyam user
   }
 
-  // Log ALL raw activities from Discord for full visibility
-  const oldActivities = oldPresence?.activities.map((a) => ({
+  // Dump ALL data Discord provides per activity
+  const dumpActivity = (a: any) => ({
     name: a.name,
     type: a.type,
+    url: a.url ?? null,
     details: a.details,
     state: a.state,
-    timestamps: a.timestamps ? {
-      start: a.timestamps.start?.toISOString() ?? null,
-      end: a.timestamps.end?.toISOString() ?? null,
-    } : null,
     applicationId: a.applicationId,
-  })) ?? [];
+    timestamps: a.timestamps ? {
+      start: a.timestamps.start?.toISOString?.() ?? a.timestamps.start ?? null,
+      end: a.timestamps.end?.toISOString?.() ?? a.timestamps.end ?? null,
+    } : null,
+    party: a.party ? {
+      id: a.party.id ?? null,
+      size: a.party.size ?? null,
+    } : null,
+    assets: a.assets ? {
+      largeImage: a.assets.largeImage ?? null,
+      largeText: a.assets.largeText ?? null,
+      smallImage: a.assets.smallImage ?? null,
+      smallText: a.assets.smallText ?? null,
+      largeImageURL: a.assets.largeImageURL?.() ?? null,
+      smallImageURL: a.assets.smallImageURL?.() ?? null,
+    } : null,
+    emoji: a.emoji ? { name: a.emoji.name, id: a.emoji.id } : null,
+    buttons: a.buttons ?? [],
+    flags: a.flags?.toArray?.() ?? null,
+    syncId: a.syncId ?? null,
+    sessionId: a.sessionId ?? null,
+    createdTimestamp: a.createdTimestamp ?? null,
+  });
 
-  const newActivities = newPresence.activities.map((a) => ({
-    name: a.name,
-    type: a.type,
-    details: a.details,
-    state: a.state,
-    timestamps: a.timestamps ? {
-      start: a.timestamps.start?.toISOString() ?? null,
-      end: a.timestamps.end?.toISOString() ?? null,
-    } : null,
-    applicationId: a.applicationId,
-  }));
+  const oldActivities = oldPresence?.activities.map(dumpActivity) ?? [];
+  const newActivities = newPresence.activities.map(dumpActivity);
 
   // Extract game activities
   const oldGame = extractPlayingActivity(oldPresence);
@@ -61,6 +71,11 @@ export async function handlePresenceUpdate(
     oldPresenceNull: isOldPresenceNull,
     oldStatus: oldPresence?.status ?? null,
     newStatus: newPresence.status,
+    clientStatus: newPresence.clientStatus ? {
+      desktop: newPresence.clientStatus.desktop ?? null,
+      mobile: newPresence.clientStatus.mobile ?? null,
+      web: newPresence.clientStatus.web ?? null,
+    } : null,
     oldActivityCount: oldActivities.length,
     newActivityCount: newActivities.length,
     oldActivities: JSON.stringify(oldActivities),
