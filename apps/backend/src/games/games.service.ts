@@ -30,16 +30,15 @@ export class GamesService {
   }
 
   async setApplicationId(gameId: string, applicationId: string): Promise<void> {
-    try {
-      await this.supabase
-        .getClient()
-        .from('games')
-        .update({ discord_application_id: applicationId })
-        .eq('id', gameId)
-        .is('discord_application_id', null);
-    } catch (err) {
-      // Unique constraint violation — another game already has this applicationId. No-op.
-      this.logger.warn({ err, gameId, applicationId }, 'Failed to set applicationId (likely unique conflict)');
+    const { error } = await this.supabase
+      .getClient()
+      .from('games')
+      .update({ discord_application_id: applicationId })
+      .eq('id', gameId)
+      .is('discord_application_id', null);
+
+    if (error) {
+      this.logger.warn({ error, gameId, applicationId }, 'Failed to set applicationId (likely unique conflict)');
     }
   }
 
