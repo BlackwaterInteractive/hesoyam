@@ -81,6 +81,7 @@ export type Database = {
           first_release_date: string | null
           igdb_updated_at: string | null
           metadata_source: string | null
+          discord_application_id: string | null
           created_at: string
         }
         Insert: {
@@ -103,6 +104,7 @@ export type Database = {
           first_release_date?: string | null
           igdb_updated_at?: string | null
           metadata_source?: string | null
+          discord_application_id?: string | null
           created_at?: string
         }
         Update: {
@@ -125,6 +127,7 @@ export type Database = {
           first_release_date?: string | null
           igdb_updated_at?: string | null
           metadata_source?: string | null
+          discord_application_id?: string | null
           created_at?: string
         }
         Relationships: []

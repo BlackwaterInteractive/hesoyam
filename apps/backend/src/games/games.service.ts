@@ -17,6 +17,32 @@ export class GamesService {
     @InjectPinoLogger(GamesService.name) private logger: PinoLogger,
   ) {}
 
+  async findByApplicationId(applicationId: string): Promise<ResolvedGame | null> {
+    const { data } = await this.supabase
+      .getClient()
+      .from('games')
+      .select('id, name, slug, cover_url, igdb_id')
+      .eq('discord_application_id', applicationId)
+      .limit(1)
+      .single();
+
+    return data ?? null;
+  }
+
+  async setApplicationId(gameId: string, applicationId: string): Promise<void> {
+    try {
+      await this.supabase
+        .getClient()
+        .from('games')
+        .update({ discord_application_id: applicationId })
+        .eq('id', gameId)
+        .is('discord_application_id', null);
+    } catch (err) {
+      // Unique constraint violation — another game already has this applicationId. No-op.
+      this.logger.warn({ err, gameId, applicationId }, 'Failed to set applicationId (likely unique conflict)');
+    }
+  }
+
   async findExact(name: string): Promise<ResolvedGame | null> {
     const { data } = await this.supabase
       .getClient()
