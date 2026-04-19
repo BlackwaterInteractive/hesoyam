@@ -1,0 +1,405 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Search,
+  Gamepad2,
+  ExternalLink,
+  AlertCircle,
+} from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import type { Game } from "@/lib/types";
+
+type GameWithStats = Game & {
+  session_count: number;
+  player_count: number;
+};
+
+interface GamesTableProps {
+  games: GameWithStats[];
+  totalCount: number;
+  currentPage: number;
+  search: string;
+  filter: string;
+}
+
+const FILTER_OPTIONS = [
+  { value: "all", label: "All Games" },
+  { value: "missing_cover", label: "Missing Cover" },
+  { value: "missing_genres", label: "Missing Genres" },
+  { value: "ignored", label: "Ignored" },
+];
+
+function buildUrl(
+  params: Record<string, string | number | undefined>
+) {
+  const sp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (
+      value !== undefined &&
+      value !== "" &&
+      !(key === "page" && value === 1) &&
+      !(key === "filter" && value === "all")
+    ) {
+      sp.set(key, String(value));
+    }
+  }
+  const qs = sp.toString();
+  return `/games${qs ? `?${qs}` : ""}`;
+}
+
+export function GamesTable({
+  games,
+  totalCount,
+  currentPage,
+  search,
+  filter,
+}: GamesTableProps) {
+  const router = useRouter();
+  const [searchValue, setSearchValue] = useState(search);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / 25));
+
+  const pushParams = useCallback(
+    (q?: string, f?: string) => {
+      router.push(
+        buildUrl({
+          q: (q ?? searchValue) || undefined,
+          filter: (f ?? filter) || undefined,
+          page: undefined,
+        })
+      );
+    },
+    [router, searchValue, filter]
+  );
+
+  useEffect(() => {
+    setSearchValue(search);
+  }, [search]);
+
+  function handleSearchChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const value = e.target.value;
+    setSearchValue(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => pushParams(value, undefined), 300);
+  }
+
+  function handleFilterChange(value: string | null, _event: unknown) {
+    router.push(
+      buildUrl({
+        q: searchValue || undefined,
+        filter: value || undefined,
+        page: undefined,
+      })
+    );
+  }
+
+  function getPageNumbers(): (number | "ellipsis")[] {
+    const pages: (number | "ellipsis")[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 3) pages.push("ellipsis");
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (currentPage < totalPages - 2) pages.push("ellipsis");
+      pages.push(totalPages);
+    }
+    return pages;
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Search + Filter bar */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search games..."
+            value={searchValue}
+            onChange={handleSearchChange}
+            className="pl-9"
+          />
+        </div>
+        <Select value={filter} onValueChange={handleFilterChange}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {FILTER_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Results count */}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Gamepad2 className="h-4 w-4" />
+        <span>
+          {totalCount.toLocaleString()} game{totalCount !== 1 ? "s" : ""}
+          {search && (
+            <span>
+              {" "}
+              matching &ldquo;{search}&rdquo;
+            </span>
+          )}
+        </span>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-lg border border-border/50 overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-border/50 hover:bg-transparent">
+              <TableHead className="pl-4">Game</TableHead>
+              <TableHead>IGDB</TableHead>
+              <TableHead>Genres</TableHead>
+              <TableHead className="text-right">Sessions</TableHead>
+              <TableHead className="text-right">Players</TableHead>
+              <TableHead>App ID</TableHead>
+              <TableHead>Quality</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {games.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={7}
+                  className="h-32 text-center text-muted-foreground"
+                >
+                  No games found.
+                </TableCell>
+              </TableRow>
+            ) : (
+              games.map((game) => {
+                const isIgnored = game.ignored;
+                const genres = game.genres ?? [];
+                const hasCover = !!game.cover_url;
+                const hasGenres = genres.length > 0;
+
+                return (
+                  <TableRow
+                    key={game.id}
+                    className={`border-border/30 cursor-pointer transition-colors ${
+                      isIgnored
+                        ? "opacity-50 hover:bg-muted/20"
+                        : "hover:bg-muted/30"
+                    }`}
+                    onClick={() => router.push(`/games/${game.id}`)}
+                  >
+                    <TableCell className="pl-4">
+                      <div className="flex items-center gap-3">
+                        {/* Cover thumbnail */}
+                        <div className="h-10 w-10 rounded bg-muted/50 overflow-hidden shrink-0 flex items-center justify-center">
+                          {game.cover_url ? (
+                            <img
+                              src={game.cover_url}
+                              alt={game.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <Gamepad2 className="h-5 w-5 text-muted-foreground/50" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p
+                            className={`text-sm font-medium truncate ${
+                              isIgnored ? "line-through" : ""
+                            }`}
+                          >
+                            {game.name}
+                          </p>
+                          {game.developer && (
+                            <p className="text-xs text-muted-foreground truncate">
+                              {game.developer}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {game.igdb_url ? (
+                        <a
+                          href={game.igdb_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground hover:text-indigo-400 transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : (
+                        <span className="text-muted-foreground/40">&mdash;</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {genres.slice(0, 2).map((genre) => (
+                          <Badge
+                            key={genre}
+                            variant="secondary"
+                            className="bg-muted text-muted-foreground text-[11px]"
+                          >
+                            {genre}
+                          </Badge>
+                        ))}
+                        {genres.length > 2 && (
+                          <span className="text-xs text-muted-foreground">
+                            +{genres.length - 2}
+                          </span>
+                        )}
+                        {genres.length === 0 && (
+                          <span className="text-muted-foreground/40">&mdash;</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="text-sm tabular-nums text-muted-foreground">
+                        {game.session_count.toLocaleString()}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="text-sm tabular-nums text-muted-foreground">
+                        {game.player_count.toLocaleString()}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      {game.discord_application_id ? (
+                        <code className="text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded font-mono">
+                          {game.discord_application_id}
+                        </code>
+                      ) : (
+                        <span className="text-muted-foreground/40">&mdash;</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {!hasCover && (
+                          <Badge
+                            variant="destructive"
+                            className="text-[11px]"
+                          >
+                            <AlertCircle className="h-3 w-3 mr-0.5" />
+                            No Cover
+                          </Badge>
+                        )}
+                        {!hasGenres && (
+                          <Badge
+                            variant="destructive"
+                            className="text-[11px]"
+                          >
+                            <AlertCircle className="h-3 w-3 mr-0.5" />
+                            No Genres
+                          </Badge>
+                        )}
+                        {hasCover && hasGenres && (
+                          <span className="text-xs text-green-400">OK</span>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <Pagination>
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                href={
+                  currentPage > 1
+                    ? buildUrl({
+                        q: search || undefined,
+                        filter: filter || undefined,
+                        page: currentPage - 1,
+                      })
+                    : "#"
+                }
+                aria-disabled={currentPage <= 1}
+                className={
+                  currentPage <= 1 ? "pointer-events-none opacity-50" : ""
+                }
+              />
+            </PaginationItem>
+            {getPageNumbers().map((page, i) =>
+              page === "ellipsis" ? (
+                <PaginationItem key={`ellipsis-${i}`}>
+                  <PaginationEllipsis />
+                </PaginationItem>
+              ) : (
+                <PaginationItem key={page}>
+                  <PaginationLink
+                    href={buildUrl({
+                      q: search || undefined,
+                      filter: filter || undefined,
+                      page,
+                    })}
+                    isActive={page === currentPage}
+                  >
+                    {page}
+                  </PaginationLink>
+                </PaginationItem>
+              )
+            )}
+            <PaginationItem>
+              <PaginationNext
+                href={
+                  currentPage < totalPages
+                    ? buildUrl({
+                        q: search || undefined,
+                        filter: filter || undefined,
+                        page: currentPage + 1,
+                      })
+                    : "#"
+                }
+                aria-disabled={currentPage >= totalPages}
+                className={
+                  currentPage >= totalPages
+                    ? "pointer-events-none opacity-50"
+                    : ""
+                }
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      )}
+    </div>
+  );
+}

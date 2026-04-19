@@ -10,7 +10,9 @@
     "start:discord": "pnpm --filter @hesoyam/discord-rp-server start",
     "run:backend": "pnpm --filter backend start:dev",
     "run:web": "pnpm --filter web dev",
-    "run:bot": "pnpm --filter @hesoyam/discord-rp-server dev"
+    "run:bot": "pnpm --filter @hesoyam/discord-rp-server dev",
+    "run:admin": "pnpm --filter admin dev",
+    "build:admin": "pnpm --filter admin build"
   },
   "engines": {
     "node": ">=20"
