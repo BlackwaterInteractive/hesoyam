@@ -75,9 +75,17 @@ export class IgdbService {
       );
 
       const data = (response.data ?? []) as unknown[];
-      this.cache.set(SEARCH_CACHE, key, data);
+      // Negative cache: empty results expire much faster than populated ones.
+      // Prevents a "game released yesterday, still shows as missing today"
+      // scenario where an empty cache entry from before the game was in
+      // IGDB would otherwise persist for the full main TTL (24h default).
+      const ttlMs =
+        data.length === 0
+          ? this.config.get<number>('IGDB_SEARCH_EMPTY_TTL_MS', 5 * 60 * 1000)
+          : undefined;
+      this.cache.set(SEARCH_CACHE, key, data, ttlMs);
       this.logger.debug(
-        { query, key, count: data.length },
+        { query, key, count: data.length, ttlMs: ttlMs ?? 'default' },
         'IGDB search fetched and cached',
       );
       return data;
