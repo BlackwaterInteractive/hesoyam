@@ -1,43 +1,114 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
+import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { TwitchAuthService } from './twitch-auth.service';
 import { SupabaseService } from '../core/supabase/supabase.service';
+import { CacheService } from '../core/cache/cache.service';
 import { ResolvedGame } from '../games/games.service';
 
 const IGDB_BASE_URL = 'https://api.igdb.com/v4';
+const SEARCH_CACHE = 'igdb-search';
 
 @Injectable()
 export class IgdbService {
+  // In-flight deduplication: concurrent callers with the same cache key
+  // share one IGDB round-trip instead of fanning out.
+  private inFlightSearches = new Map<string, Promise<unknown[]>>();
+
   constructor(
     private twitchAuth: TwitchAuthService,
     private http: HttpService,
     private config: ConfigService,
     private supabase: SupabaseService,
+    private cache: CacheService,
     @InjectPinoLogger(IgdbService.name) private logger: PinoLogger,
   ) {}
 
-  async search(query: string, limit = 10) {
-    const token = await this.twitchAuth.getAccessToken();
-    const clientId = this.config.getOrThrow<string>('TWITCH_CLIENT_ID');
+  async search(query: string, limit = 10): Promise<unknown[]> {
+    const key = this.searchCacheKey(query, limit);
 
-    const response = await firstValueFrom(
-      this.http.post(
-        `${IGDB_BASE_URL}/games`,
-        `search "${query}"; fields name,slug,cover.image_id,genres.name,first_release_date; limit ${limit};`,
-        {
-          headers: {
-            'Client-ID': clientId,
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'text/plain',
+    // Fresh cache hit — no IGDB call, no DB, no wait.
+    const cached = this.cache.get<unknown[]>(SEARCH_CACHE, key);
+    if (cached) {
+      this.logger.debug({ query, key }, 'IGDB search cache hit');
+      return cached;
+    }
+
+    // Coalesce concurrent cache misses onto a single in-flight request.
+    const inFlight = this.inFlightSearches.get(key);
+    if (inFlight) {
+      this.logger.debug({ query, key }, 'IGDB search coalesced to in-flight request');
+      return inFlight;
+    }
+
+    const promise = this.fetchAndCacheSearch(query, limit, key).finally(() => {
+      this.inFlightSearches.delete(key);
+    });
+    this.inFlightSearches.set(key, promise);
+    return promise;
+  }
+
+  private async fetchAndCacheSearch(
+    query: string,
+    limit: number,
+    key: string,
+  ): Promise<unknown[]> {
+    try {
+      const token = await this.twitchAuth.getAccessToken();
+      const clientId = this.config.getOrThrow<string>('TWITCH_CLIENT_ID');
+
+      const response = await firstValueFrom(
+        this.http.post(
+          `${IGDB_BASE_URL}/games`,
+          `search "${query}"; fields name,slug,cover.image_id,genres.name,first_release_date; limit ${limit};`,
+          {
+            headers: {
+              'Client-ID': clientId,
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'text/plain',
+            },
           },
-        },
-      ),
-    );
+        ),
+      );
 
-    return response.data;
+      const data = (response.data ?? []) as unknown[];
+      this.cache.set(SEARCH_CACHE, key, data);
+      this.logger.debug(
+        { query, key, count: data.length },
+        'IGDB search fetched and cached',
+      );
+      return data;
+    } catch (err) {
+      // Graceful 429: return stale cache if the entry is still retained,
+      // otherwise an empty array. Never surfaces as "Search failed" to the user.
+      if (this.isRateLimitError(err)) {
+        const stale = this.cache.get<unknown[]>(SEARCH_CACHE, key, {
+          allowStale: true,
+        });
+        this.logger.warn(
+          { query, key, hasStale: Boolean(stale) },
+          'IGDB rate limit (429) on search — serving stale cache or empty array',
+        );
+        return stale ?? [];
+      }
+      throw err;
+    }
+  }
+
+  private searchCacheKey(query: string, limit: number): string {
+    const normalized = query.toLowerCase().replace(/[™®©]/g, '').trim();
+    return `${normalized}::${limit}`;
+  }
+
+  private isRateLimitError(err: unknown): boolean {
+    if (err instanceof AxiosError) {
+      return err.response?.status === 429;
+    }
+    const shaped = err as { response?: { status?: number }; status?: number };
+    return shaped?.response?.status === 429 || shaped?.status === 429;
   }
 
   async searchAndImport(gameName: string): Promise<ResolvedGame | null> {
@@ -53,7 +124,7 @@ export class IgdbService {
     );
     const bestMatch = exactMatch ?? results[0];
 
-    return this.importById(bestMatch.id);
+    return this.importById((bestMatch as { id: number }).id);
   }
 
   async importById(igdbId: number): Promise<ResolvedGame> {

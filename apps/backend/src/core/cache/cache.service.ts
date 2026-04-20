@@ -6,6 +6,11 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 interface CacheOptions {
   max: number;
   ttlMs: number;
+  allowStale?: boolean;
+}
+
+interface GetOptions {
+  allowStale?: boolean;
 }
 
 @Injectable()
@@ -33,6 +38,14 @@ export class CacheService implements OnModuleInit {
       ttlMs: 0, // managed manually by TwitchAuthService
     });
 
+    // `allowStale: true` retains expired entries for explicit
+    // `{ allowStale: true }` reads — used by IgdbService as a 429 fallback.
+    this.createCache('igdb-search', {
+      max: this.config.get<number>('IGDB_SEARCH_CACHE_MAX', 500),
+      ttlMs: this.config.get<number>('IGDB_SEARCH_CACHE_TTL_MS', 10 * 60 * 1000),
+      allowStale: true,
+    });
+
     this.logger.info('Cache service initialized');
   }
 
@@ -42,14 +55,15 @@ export class CacheService implements OnModuleInit {
       new LRUCache({
         max: options.max,
         ttl: options.ttlMs || undefined,
+        allowStale: options.allowStale ?? false,
       }),
     );
   }
 
-  get<T>(cacheName: string, key: string): T | undefined {
+  get<T>(cacheName: string, key: string, options?: GetOptions): T | undefined {
     const cache = this.caches.get(cacheName);
     if (!cache) return undefined;
-    return cache.get(key) as T | undefined;
+    return cache.get(key, options) as T | undefined;
   }
 
   set<T extends object>(cacheName: string, key: string, value: T, ttlMs?: number): void {
