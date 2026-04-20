@@ -6,10 +6,15 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../shared/models/library_status.dart';
 import '../../../shared/utils/format.dart';
 import '../../profile/presentation/providers/profile_provider.dart';
 import '../domain/library_repository.dart';
 import 'providers/library_provider.dart';
+
+/// Category filter for the library chips.
+/// `null` = "All" (no filter); anything else filters by `LibraryEntry.status`.
+typedef _LibraryCategory = LibraryStatus?;
 
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
@@ -19,8 +24,16 @@ class LibraryScreen extends ConsumerStatefulWidget {
 }
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen> {
-  int _selectedFilter = 0;
-  static const _filters = ['All', 'Recent', 'Most Played'];
+  _LibraryCategory _selectedCategory; // null = All
+
+  _LibraryScreenState() : _selectedCategory = null;
+
+  static const _categories = <(String, _LibraryCategory)>[
+    ('All', null),
+    ('Want to Play', LibraryStatus.wantToPlay),
+    ('Played', LibraryStatus.played),
+    ('Completed', LibraryStatus.completed),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -67,39 +80,50 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
               ),
             ),
 
-            // Filter chips
+            // Category chips — scrollable so long labels don't squash on narrow phones.
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(
                   AppTheme.spacing20, AppTheme.spacing16, AppTheme.spacing20, AppTheme.spacing12,
                 ),
-                child: Row(
-                  children: List.generate(_filters.length, (i) {
-                    final isSelected = i == _selectedFilter;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: AppTheme.spacing8),
-                      child: GestureDetector(
-                        onTap: () => setState(() => _selectedFilter = i),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppTheme.spacing16,
-                            vertical: AppTheme.spacing8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isSelected ? AppColors.accent : AppColors.surface2,
-                            borderRadius: BorderRadius.circular(AppTheme.radiusFull),
-                          ),
-                          child: Text(
-                            _filters[i],
-                            style: AppTypography.bodySmall.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: isSelected ? Colors.black : AppColors.textSecondary,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: List.generate(_categories.length, (i) {
+                      final (label, category) = _categories[i];
+                      final isSelected = category == _selectedCategory;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: AppTheme.spacing8),
+                        child: GestureDetector(
+                          onTap: () =>
+                              setState(() => _selectedCategory = category),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppTheme.spacing16,
+                              vertical: AppTheme.spacing8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.accent
+                                  : AppColors.surface2,
+                              borderRadius: BorderRadius.circular(
+                                AppTheme.radiusFull,
+                              ),
+                            ),
+                            child: Text(
+                              label,
+                              style: AppTypography.bodySmall.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: isSelected
+                                    ? Colors.black
+                                    : AppColors.textSecondary,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    );
-                  }),
+                      );
+                    }),
+                  ),
                 ),
               ),
             ),
@@ -113,31 +137,45 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 child: Center(child: Text('Error: $e')),
               ),
               data: (entries) {
+                final isDiscordLinked = profileAsync.whenOrNull(
+                      data: (p) => p?.discordId != null,
+                    ) ??
+                    false;
+
                 if (entries.isEmpty) {
                   return SliverFillRemaining(
                     child: _EmptyLibrary(
-                      isDiscordLinked: profileAsync.whenOrNull(
-                            data: (p) => p?.discordId != null,
-                          ) ??
-                          false,
+                      isDiscordLinked: isDiscordLinked,
                     ),
                   );
                 }
 
-                final sorted = _sortEntries(entries);
+                final filtered = _filterByCategory(entries);
+
+                if (filtered.isEmpty) {
+                  return SliverFillRemaining(
+                    child: _EmptyCategory(
+                      categoryLabel: _categories
+                          .firstWhere((c) => c.$2 == _selectedCategory)
+                          .$1,
+                    ),
+                  );
+                }
 
                 return SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing20),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppTheme.spacing20,
+                  ),
                   sliver: SliverGrid.builder(
                     gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: AppTheme.spacing12,
+                      crossAxisCount: 3,
+                      crossAxisSpacing: AppTheme.spacing8,
                       mainAxisSpacing: AppTheme.spacing16,
                       childAspectRatio: 0.58,
                     ),
-                    itemCount: sorted.length,
+                    itemCount: filtered.length,
                     itemBuilder: (context, index) {
-                      final entry = sorted[index];
+                      final entry = filtered[index];
                       return GestureDetector(
                         onTap: () => context.push('/game/${entry.game.id}'),
                         child: _GameCard(entry: entry),
@@ -155,20 +193,32 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     );
   }
 
-  List<LibraryEntry> _sortEntries(List<LibraryEntry> entries) {
-    final sorted = List<LibraryEntry>.from(entries);
-    switch (_selectedFilter) {
-      case 1: // Recent
-        sorted.sort((a, b) =>
-            (b.userGame.lastPlayed ?? DateTime(2000))
-                .compareTo(a.userGame.lastPlayed ?? DateTime(2000)));
-        break;
-      case 2: // Most Played
-        sorted.sort((a, b) =>
-            b.userGame.totalTimeSecs.compareTo(a.userGame.totalTimeSecs));
-        break;
+  List<LibraryEntry> _filterByCategory(List<LibraryEntry> entries) {
+    final filtered = _selectedCategory == null
+        ? List<LibraryEntry>.from(entries)
+        : entries.where((e) => e.status == _selectedCategory).toList();
+
+    // Sort policy:
+    //   All / Want to Play → most recently added first (what's new in the library)
+    //   Played / Completed → most played first (achievement-ish view)
+    final sortByAddedAt = _selectedCategory == null ||
+        _selectedCategory == LibraryStatus.wantToPlay;
+
+    if (sortByAddedAt) {
+      filtered.sort((a, b) {
+        final aAt = a.addedAt;
+        final bAt = b.addedAt;
+        if (aAt == null && bAt == null) return 0;
+        if (aAt == null) return 1; // nulls last
+        if (bAt == null) return -1;
+        return bAt.compareTo(aAt); // DESC
+      });
+    } else {
+      filtered.sort(
+        (a, b) => b.userGame.totalTimeSecs.compareTo(a.userGame.totalTimeSecs),
+      );
     }
-    return sorted;
+    return filtered;
   }
 }
 
@@ -183,18 +233,15 @@ class _GameCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-            child: entry.game.coverUrl != null
-                ? CachedNetworkImage(
-                    imageUrl: entry.game.coverUrl!,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    placeholder: (_, __) => _coverPlaceholder(entry.game.name),
-                    errorWidget: (_, __, ___) => _coverPlaceholder(entry.game.name),
-                  )
-                : _coverPlaceholder(entry.game.name),
-          ),
+          child: entry.game.coverUrl != null
+              ? CachedNetworkImage(
+                  imageUrl: entry.game.coverUrl!,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  placeholder: (_, _) => _coverPlaceholder(entry.game.name),
+                  errorWidget: (_, _, _) => _coverPlaceholder(entry.game.name),
+                )
+              : _coverPlaceholder(entry.game.name),
         ),
         const Gap(AppTheme.spacing8),
         Text(
@@ -293,6 +340,43 @@ class _EmptyLibrary extends StatelessWidget {
               onPressed: () => context.go('/search'),
               child: const Text('Search Games'),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyCategory extends StatelessWidget {
+  const _EmptyCategory({required this.categoryLabel});
+
+  final String categoryLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.spacing20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.filter_list_rounded,
+            size: 48,
+            color: AppColors.textTertiary,
+          ),
+          const Gap(AppTheme.spacing16),
+          Text(
+            'No games in “$categoryLabel”',
+            style: AppTypography.headlineSmall,
+            textAlign: TextAlign.center,
+          ),
+          const Gap(AppTheme.spacing8),
+          Text(
+            'Add games from Search, or change the filter above.',
+            style: AppTypography.bodyMedium.copyWith(
+              color: AppColors.textTertiary,
+            ),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
