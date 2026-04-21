@@ -6,6 +6,11 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 interface CacheOptions {
   max: number;
   ttlMs: number;
+  allowStale?: boolean;
+}
+
+interface GetOptions {
+  allowStale?: boolean;
 }
 
 @Injectable()
@@ -33,23 +38,46 @@ export class CacheService implements OnModuleInit {
       ttlMs: 0, // managed manually by TwitchAuthService
     });
 
+    // `allowStale: true` retains expired entries for explicit
+    // `{ allowStale: true }` reads — used by IgdbService as a 429 fallback.
+    // 24h TTL: IGDB catalog metadata is effectively immutable (cover art,
+    // release year, developer don't change post-release). Empty results
+    // get a shorter per-entry TTL applied in IgdbService so newly-released
+    // games surface within minutes instead of a day.
+    this.createCache('igdb-search', {
+      max: this.config.get<number>('IGDB_SEARCH_CACHE_MAX', 500),
+      ttlMs: this.config.get<number>(
+        'IGDB_SEARCH_CACHE_TTL_MS',
+        24 * 60 * 60 * 1000,
+      ),
+      allowStale: true,
+    });
+
     this.logger.info('Cache service initialized');
   }
 
   createCache(name: string, options: CacheOptions): void {
+    const allowStale = options.allowStale ?? false;
     this.caches.set(
       name,
       new LRUCache({
         max: options.max,
         ttl: options.ttlMs || undefined,
+        allowStale,
+        // Pair with `allowStale` so expired entries remain in memory for
+        // explicit `{ allowStale: true }` reads (e.g. IGDB 429 fallback),
+        // rather than being deleted on the first miss.
+        noDeleteOnStaleGet: allowStale,
       }),
     );
   }
 
-  get<T>(cacheName: string, key: string): T | undefined {
+  get<T>(cacheName: string, key: string, options?: GetOptions): T | undefined {
     const cache = this.caches.get(cacheName);
     if (!cache) return undefined;
-    return cache.get(key) as T | undefined;
+    // Default to `allowStale: false` so routine reads treat expired entries
+    // as misses. Callers pass `{ allowStale: true }` explicitly to opt in.
+    return cache.get(key, { allowStale: false, ...options }) as T | undefined;
   }
 
   set<T extends object>(cacheName: string, key: string, value: T, ttlMs?: number): void {
