@@ -12,6 +12,28 @@ import { ResolvedGame } from '../games/games.service';
 const IGDB_BASE_URL = 'https://api.igdb.com/v4';
 const SEARCH_CACHE = 'igdb-search';
 
+/**
+ * IGDB metadata in the exact shape we write to the `games` table (and the
+ * exact shape the `reconcile_orphan_game` SQL function accepts as JSONB).
+ */
+export interface IgdbGameData {
+  igdb_id: number;
+  name: string;
+  slug: string;
+  cover_url: string | null;
+  genres: string[];
+  developer: string | null;
+  publisher: string | null;
+  release_year: number | null;
+  description: string | null;
+  first_release_date: string | null;
+  screenshots: string[];
+  artwork_url: string | null;
+  rating: number | null;
+  rating_count: number | null;
+  platforms: string[];
+}
+
 @Injectable()
 export class IgdbService {
   // In-flight deduplication: concurrent callers with the same cache key
@@ -135,11 +157,17 @@ export class IgdbService {
     return this.importById((bestMatch as { id: number }).id);
   }
 
-  async importById(igdbId: number): Promise<ResolvedGame> {
+  /**
+   * Fetch + transform IGDB metadata for a given game id. Does NOT write to
+   * the DB — callers do the persistence themselves. Used by both the
+   * importById upsert path and the reconciliation worker, which needs the
+   * raw metadata to pass as JSONB to the `reconcile_orphan_game` SQL
+   * function.
+   */
+  async fetchGameData(igdbId: number): Promise<IgdbGameData> {
     const token = await this.twitchAuth.getAccessToken();
     const clientId = this.config.getOrThrow<string>('TWITCH_CLIENT_ID');
 
-    // Fetch full game data
     const response = await firstValueFrom(
       this.http.post(
         `${IGDB_BASE_URL}/games`,
@@ -159,62 +187,48 @@ export class IgdbService {
       throw new Error(`IGDB game not found: ${igdbId}`);
     }
 
-    // Extract metadata
-    const coverUrl = game.cover?.image_id
-      ? `https://images.igdb.com/igdb/image/upload/t_cover_big/${game.cover.image_id}.jpg`
-      : null;
+    return {
+      igdb_id: igdbId,
+      name: game.name,
+      slug: game.slug,
+      cover_url: game.cover?.image_id
+        ? `https://images.igdb.com/igdb/image/upload/t_cover_big/${game.cover.image_id}.jpg`
+        : null,
+      genres: game.genres?.map((g: any) => g.name) ?? [],
+      developer:
+        game.involved_companies?.find((c: any) => c.developer)?.company?.name ??
+        null,
+      publisher:
+        game.involved_companies?.find((c: any) => !c.developer)?.company
+          ?.name ?? null,
+      release_year: game.first_release_date
+        ? new Date(game.first_release_date * 1000).getFullYear()
+        : null,
+      description: game.summary ?? null,
+      first_release_date: game.first_release_date
+        ? new Date(game.first_release_date * 1000).toISOString()
+        : null,
+      screenshots:
+        game.screenshots?.map(
+          (s: any) =>
+            `https://images.igdb.com/igdb/image/upload/t_screenshot_big/${s.image_id}.jpg`,
+        ) ?? [],
+      artwork_url: game.artworks?.[0]?.image_id
+        ? `https://images.igdb.com/igdb/image/upload/t_1080p/${game.artworks[0].image_id}.jpg`
+        : null,
+      rating: game.total_rating ?? null,
+      rating_count: game.total_rating_count ?? null,
+      platforms: game.platforms?.map((p: any) => p.name) ?? [],
+    };
+  }
 
-    const genres = game.genres?.map((g: any) => g.name) ?? [];
+  async importById(igdbId: number): Promise<ResolvedGame> {
+    const data = await this.fetchGameData(igdbId);
 
-    const developer = game.involved_companies?.find(
-      (c: any) => c.developer,
-    )?.company?.name ?? null;
-
-    const publisher = game.involved_companies?.find(
-      (c: any) => !c.developer,
-    )?.company?.name ?? null;
-
-    const releaseYear = game.first_release_date
-      ? new Date(game.first_release_date * 1000).getFullYear()
-      : null;
-
-    const screenshots = game.screenshots?.map(
-      (s: any) =>
-        `https://images.igdb.com/igdb/image/upload/t_screenshot_big/${s.image_id}.jpg`,
-    ) ?? [];
-
-    const artworkUrl = game.artworks?.[0]?.image_id
-      ? `https://images.igdb.com/igdb/image/upload/t_1080p/${game.artworks[0].image_id}.jpg`
-      : null;
-
-    const platforms = game.platforms?.map((p: any) => p.name) ?? [];
-
-    // Upsert into games table
     const { data: upserted, error } = await this.supabase
       .getClient()
       .from('games')
-      .upsert(
-        {
-          igdb_id: igdbId,
-          name: game.name,
-          slug: game.slug,
-          cover_url: coverUrl,
-          genres,
-          developer,
-          publisher,
-          release_year: releaseYear,
-          description: game.summary ?? null,
-          first_release_date: game.first_release_date
-            ? new Date(game.first_release_date * 1000).toISOString()
-            : null,
-          screenshots,
-          artwork_url: artworkUrl,
-          rating: game.total_rating ?? null,
-          rating_count: game.total_rating_count ?? null,
-          platforms,
-        },
-        { onConflict: 'igdb_id' },
-      )
+      .upsert(data, { onConflict: 'igdb_id' })
       .select('id, name, slug, cover_url, igdb_id')
       .single();
 
