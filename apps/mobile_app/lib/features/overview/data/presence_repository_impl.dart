@@ -10,13 +10,19 @@ import '../../../shared/models/dashboard_stats.dart';
 /// 2. Listens to Realtime broadcast for live updates (start/heartbeat/end).
 /// 3. Staleness: clears presence if no heartbeat for 45s, but re-checks DB
 ///    before declaring "not playing" (per PRD §5.1).
+/// 4. Periodic reconciliation: re-queries DB every 60s to recover from
+///    broadcasts missed while the app was backgrounded or disconnected.
+///    Broadcasts are at-most-once — without this, missed 'start' events
+///    leave the UI stale until the user kills and relaunches the app.
 class PresenceRepository {
   PresenceRepository(this._client);
 
   final SupabaseClient _client;
   RealtimeChannel? _channel;
   Timer? _staleTimer;
+  Timer? _reconcileTimer;
   DateTime? _lastHeartbeat;
+  String? _subscribedUserId;
 
   final _controller = StreamController<GamePresence?>.broadcast();
 
@@ -26,6 +32,7 @@ class PresenceRepository {
   /// Emits initial state from DB, then live updates from Realtime.
   void subscribe(String userId) {
     unsubscribe();
+    _subscribedUserId = userId;
 
     // 1. Check DB for existing active session first
     _checkActiveSession(userId);
@@ -55,6 +62,19 @@ class PresenceRepository {
         _checkActiveSession(userId);
       }
     });
+
+    // 4. Periodic reconciliation for missed broadcasts (see class docstring)
+    _reconcileTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      _checkActiveSession(userId);
+    });
+  }
+
+  /// Force a DB re-check. Called on app resume and pull-to-refresh to
+  /// correct drift when broadcasts may have been missed.
+  Future<void> refresh() async {
+    final userId = _subscribedUserId;
+    if (userId == null) return;
+    await _checkActiveSession(userId);
   }
 
   /// Check DB for an active session and emit presence or null.
@@ -91,11 +111,13 @@ class PresenceRepository {
 
   void unsubscribe() {
     _staleTimer?.cancel();
+    _reconcileTimer?.cancel();
     if (_channel != null) {
       _client.removeChannel(_channel!);
       _channel = null;
     }
     _lastHeartbeat = null;
+    _subscribedUserId = null;
   }
 
   void dispose() {
