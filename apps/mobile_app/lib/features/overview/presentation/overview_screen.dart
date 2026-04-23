@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../shared/utils/format.dart';
+import '../../auth/presentation/providers/auth_provider.dart';
 import '../../profile/presentation/providers/profile_provider.dart';
 import 'providers/overview_provider.dart';
 import 'widgets/live_session_card.dart';
@@ -16,11 +17,44 @@ import 'widgets/streak_bar.dart';
 import 'widgets/recent_plays.dart';
 import 'widgets/join_server_cta.dart';
 
-class OverviewScreen extends ConsumerWidget {
+class OverviewScreen extends ConsumerStatefulWidget {
   const OverviewScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OverviewScreen> createState() => _OverviewScreenState();
+}
+
+class _OverviewScreenState extends ConsumerState<OverviewScreen> {
+  late final AppLifecycleListener _lifecycleListener;
+
+  @override
+  void initState() {
+    super.initState();
+    // Supabase Realtime broadcasts are at-most-once; the websocket dies
+    // when the OS suspends the app, and any events fired during the gap
+    // are lost. Reconcile on resume so the UI self-heals.
+    _lifecycleListener = AppLifecycleListener(onResume: _refreshAll);
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshAll() async {
+    if (ref.read(currentUserProvider) == null) return;
+    await Future.wait([
+      ref.refresh(dashboardStatsProvider.future),
+      ref.refresh(allTimeSecsProvider.future),
+      ref.refresh(weekStreakProvider.future),
+      ref.refresh(recentPlaysProvider.future),
+      ref.read(presenceRepositoryProvider).refresh(),
+    ]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final profileAsync = ref.watch(currentProfileProvider);
 
     return Scaffold(
@@ -40,8 +74,11 @@ class OverviewScreen extends ConsumerWidget {
               return const SizedBox.shrink();
             }
 
-            return CustomScrollView(
-              slivers: [
+            return RefreshIndicator(
+              onRefresh: _refreshAll,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
                 // Header
                 SliverToBoxAdapter(
                   child: Padding(
@@ -83,7 +120,8 @@ class OverviewScreen extends ConsumerWidget {
                   _NoDiscordContent(),
 
                 const SliverToBoxAdapter(child: Gap(AppTheme.spacing32)),
-              ],
+                ],
+              ),
             );
           },
         ),
