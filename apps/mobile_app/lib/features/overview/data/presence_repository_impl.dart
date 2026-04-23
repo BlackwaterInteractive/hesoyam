@@ -10,13 +10,19 @@ import '../../../shared/models/dashboard_stats.dart';
 /// 2. Listens to Realtime broadcast for live updates (start/heartbeat/end).
 /// 3. Staleness: clears presence if no heartbeat for 45s, but re-checks DB
 ///    before declaring "not playing" (per PRD §5.1).
+/// 4. Periodic reconciliation: re-queries DB every 60s to recover from
+///    broadcasts missed while the app was backgrounded or disconnected.
+///    Broadcasts are at-most-once — without this, missed 'start' events
+///    leave the UI stale until the user kills and relaunches the app.
 class PresenceRepository {
   PresenceRepository(this._client);
 
   final SupabaseClient _client;
   RealtimeChannel? _channel;
   Timer? _staleTimer;
+  Timer? _reconcileTimer;
   DateTime? _lastHeartbeat;
+  String? _subscribedUserId;
 
   final _controller = StreamController<GamePresence?>.broadcast();
 
@@ -26,22 +32,36 @@ class PresenceRepository {
   /// Emits initial state from DB, then live updates from Realtime.
   void subscribe(String userId) {
     unsubscribe();
+    _subscribedUserId = userId;
 
     // 1. Check DB for existing active session first
     _checkActiveSession(userId);
 
-    // 2. Subscribe to Realtime broadcast for live updates
+    // 2. Subscribe to Realtime broadcast for live updates.
+    // The callback receives the full Phoenix envelope — the real payload is nested
+    // under `payload['payload']`. Construct GamePresence manually with null-safe
+    // defaults because the backend doesn't include `game_id` in the broadcast.
     _channel = _client
         .channel('presence:$userId', opts: const RealtimeChannelConfig(self: false))
-        .onBroadcast(event: 'game_presence', callback: (payload) {
-          final event = payload['event'] as String?;
+        .onBroadcast(event: 'game_presence', callback: (envelope) {
+          final body = envelope['payload'] as Map<String, dynamic>?;
+          if (body == null) return;
+          final event = body['event'] as String?;
 
           if (event == 'end') {
             _controller.add(null);
             _lastHeartbeat = null;
           } else {
             _lastHeartbeat = DateTime.now();
-            _controller.add(GamePresence.fromJson(payload));
+            _controller.add(GamePresence(
+              userId: body['user_id'] as String? ?? userId,
+              gameId: body['game_id'] as String? ?? '',
+              gameName: body['game_name'] as String? ?? 'Unknown Game',
+              gameSlug: body['game_slug'] as String? ?? '',
+              coverUrl: body['cover_url'] as String?,
+              startedAt: body['started_at'] as String? ?? DateTime.now().toIso8601String(),
+              event: event ?? 'start',
+            ));
           }
         })
         .subscribe();
@@ -55,6 +75,19 @@ class PresenceRepository {
         _checkActiveSession(userId);
       }
     });
+
+    // 4. Periodic reconciliation for missed broadcasts (see class docstring)
+    _reconcileTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      _checkActiveSession(userId);
+    });
+  }
+
+  /// Force a DB re-check. Called on app resume and pull-to-refresh to
+  /// correct drift when broadcasts may have been missed.
+  Future<void> refresh() async {
+    final userId = _subscribedUserId;
+    if (userId == null) return;
+    await _checkActiveSession(userId);
   }
 
   /// Check DB for an active session and emit presence or null.
@@ -91,11 +124,13 @@ class PresenceRepository {
 
   void unsubscribe() {
     _staleTimer?.cancel();
+    _reconcileTimer?.cancel();
     if (_channel != null) {
       _client.removeChannel(_channel!);
       _channel = null;
     }
     _lastHeartbeat = null;
+    _subscribedUserId = null;
   }
 
   void dispose() {
