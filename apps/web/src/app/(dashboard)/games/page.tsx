@@ -66,7 +66,6 @@ export default async function GamesPage() {
         user_id: entry.user_id,
         game_id: entry.game_id,
         status: entry.status,
-        notes: entry.notes,
         personal_rating: entry.personal_rating,
         added_at: entry.added_at,
         status_changed_at: entry.status_changed_at,
