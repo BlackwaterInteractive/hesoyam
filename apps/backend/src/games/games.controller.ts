@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { RequireApiKey } from '../auth/decorators/api-key.decorator';
 import { RequireJwt } from '../auth/decorators/jwt-auth.decorator';
 import { GameResolverService } from './game-resolver.service';
@@ -7,6 +7,7 @@ import { IgdbService } from '../igdb/igdb.service';
 import { ResolveGameDto } from './dto/resolve-game.dto';
 import { SearchGamesDto } from './dto/search-games.dto';
 import { ImportGameDto } from './dto/import-game.dto';
+import { IgdbMetadataDto } from './dto/igdb-metadata.dto';
 
 @ApiTags('Games')
 @Controller('games')
@@ -66,5 +67,22 @@ Fetches full metadata from IGDB (cover, genres, developer, screenshots, ratings,
   })
   importGame(@Body() dto: ImportGameDto) {
     return this.igdb.importById(dto.igdbId);
+  }
+
+  @Get('igdb/:id/metadata')
+  @RequireJwt()
+  @ApiOperation({
+    summary: 'Fetch IGDB metadata without persisting',
+    description: `**Called by:** admin app — Game Remap preview.
+
+Returns full IGDB metadata for a given IGDB game id **without writing to the catalog**. Used by the admin "Remap Game" preview to compute the diff the operator will see before confirming.
+
+Differs from \`POST /games/import\`, which upserts as a side effect. Do not use this endpoint for the resolver or library-add flows — they need the upsert behaviour.
+
+**Returns:** \`IgdbMetadataDto\` (igdb_id, name, slug, cover_url, genres, developer, publisher, release_year, description, first_release_date, screenshots, artwork_url, rating, rating_count, platforms).`,
+  })
+  @ApiResponse({ status: 200, type: IgdbMetadataDto })
+  getIgdbMetadata(@Param('id', ParseIntPipe) igdbId: number): Promise<IgdbMetadataDto> {
+    return this.igdb.fetchGameData(igdbId);
   }
 }

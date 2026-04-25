@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import type { Json } from "@/lib/types";
 
 export async function updateGame(
   gameId: string,
@@ -142,16 +143,144 @@ export async function searchIgdb(
   }
 }
 
-export async function remapGame(
+// ---------------------------------------------------------------------------
+// Game remap (issue #154)
+// ---------------------------------------------------------------------------
+// Two-phase: getRemapPlan inspects (read-only) and returns the detected mode
+// + diff data for the preview UI; remapGame applies under FOR UPDATE lock,
+// re-checking mode to defend TOCTOU between plan and apply.
+//
+// Modes (PR 1 ships modes 1 & 2; mode 3 returns merge_required and is blocked
+// in the UI until PR 2 lands `admin_merge_games`):
+//   refresh                       — source already has the picked igdb_id
+//   clean_retarget_no_target      — picked igdb_id has no row yet
+//   clean_retarget_empty_target   — target row exists but has 0 FK refs
+//   merge_required                — target has FKs (sessions / user_games / library)
+
+export type RemapMode =
+  | "refresh"
+  | "clean_retarget_no_target"
+  | "clean_retarget_empty_target"
+  | "merge_required";
+
+export interface IgdbMetadata {
+  igdb_id: number;
+  name: string;
+  slug: string;
+  cover_url: string | null;
+  genres: string[];
+  developer: string | null;
+  publisher: string | null;
+  release_year: number | null;
+  description: string | null;
+  first_release_date: string | null;
+  screenshots: string[];
+  artwork_url: string | null;
+  rating: number | null;
+  rating_count: number | null;
+  platforms: string[];
+}
+
+export interface RemapFkCounts {
+  sessions: number;
+  user_games: number;
+  library: number;
+}
+
+// Source row + target row are returned as the raw `games` row shape from the
+// RPC (loose because schema may evolve). UI only reads the fields it cares about.
+export type RemapGameRow = Record<string, unknown>;
+
+export interface RemapPlan {
+  mode: RemapMode;
+  source: RemapGameRow;
+  target_id: string | null;
+  target: RemapGameRow | null;
+  fk_counts: {
+    source: RemapFkCounts;
+    target: RemapFkCounts | null;
+  };
+}
+
+export interface RemapPlanResponse {
+  plan?: RemapPlan;
+  igdbMetadata?: IgdbMetadata;
+  error?: string;
+}
+
+export async function getRemapPlan(
   gameId: string,
   igdbId: number
-): Promise<{ success: boolean; error?: string }> {
+): Promise<RemapPlanResponse> {
   const backendUrl = process.env.BACKEND_API_URL;
   if (!backendUrl) {
-    return { success: false, error: "BACKEND_API_URL not configured" };
+    return { error: "BACKEND_API_URL not configured" };
   }
 
-  // Step 1: Call backend importById to fetch full IGDB data (developer, publisher, etc.)
+  const supabase = await createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    return { error: "Not authenticated" };
+  }
+
+  // 1. Fetch IGDB metadata (no DB write — new metadata-only endpoint).
+  const metaRes = await fetch(
+    `${backendUrl}/games/igdb/${igdbId}/metadata`,
+    {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      cache: "no-store",
+    }
+  );
+
+  if (!metaRes.ok) {
+    const body = await metaRes.text();
+    return {
+      error: `IGDB metadata fetch failed (${metaRes.status}): ${body}`,
+    };
+  }
+
+  const igdbMetadata = (await metaRes.json()) as IgdbMetadata;
+
+  // 2. Inspect DB state via the read-only plan RPC.
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("admin_remap_plan", {
+    p_source_id: gameId,
+    p_target_igdb_id: igdbId,
+  });
+
+  if (error) {
+    return { error: `Plan RPC failed: ${error.message}` };
+  }
+
+  const planJson = data as Record<string, unknown> | null;
+  if (!planJson) {
+    return { error: "Plan RPC returned null" };
+  }
+  if (typeof planJson.error === "string") {
+    return { error: planJson.error };
+  }
+
+  return { plan: planJson as unknown as RemapPlan, igdbMetadata };
+}
+
+export interface RemapApplyResponse {
+  success: boolean;
+  mode?: RemapMode;
+  deletedTargetId?: string | null;
+  error?: string;
+  expectedMode?: RemapMode;
+  actualMode?: RemapMode;
+}
+
+export async function remapGame(
+  gameId: string,
+  igdbId: number,
+  igdbMetadata: IgdbMetadata,
+  expectedMode: RemapMode
+): Promise<RemapApplyResponse> {
   const supabase = await createClient();
   const {
     data: { session },
@@ -161,79 +290,47 @@ export async function remapGame(
     return { success: false, error: "Not authenticated" };
   }
 
-  const res = await fetch(`${backendUrl}/games/import`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ igdbId }),
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("admin_remap_apply", {
+    p_source_id: gameId,
+    p_target_igdb_id: igdbId,
+    p_metadata: igdbMetadata as unknown as Json,
+    p_expected_mode: expectedMode,
+    p_actor_id: session.user.id,
   });
 
-  if (!res.ok) {
-    const body = await res.text();
-    return { success: false, error: `Import failed (${res.status}): ${body}` };
+  if (error) {
+    return { success: false, error: `Apply RPC failed: ${error.message}` };
   }
 
-  // Step 2: Read the full imported game from DB (importById upserts by igdb_id)
-  const admin = createAdminClient();
-  const { data: importedGame } = await admin
-    .from("games")
-    .select("*")
-    .eq("igdb_id", igdbId)
-    .single();
-
-  if (!importedGame) {
-    return { success: false, error: "Imported game not found in DB" };
+  const result = data as Record<string, unknown> | null;
+  if (!result) {
+    return { success: false, error: "Apply RPC returned null" };
   }
 
-  // Step 3: If the imported game is a different record than our target, copy data over
-  if (importedGame.id !== gameId) {
-    // Copy all IGDB metadata to our target game, preserving discord_application_id
-    const { error: updateError } = await admin
-      .from("games")
-      .update({
-        igdb_id: importedGame.igdb_id,
-        name: importedGame.name,
-        slug: importedGame.slug + "-remapped-" + Date.now(), // avoid unique constraint conflict temporarily
-        cover_url: importedGame.cover_url,
-        genres: importedGame.genres,
-        developer: importedGame.developer,
-        publisher: importedGame.publisher,
-        release_year: importedGame.release_year,
-        description: importedGame.description,
-        platforms: importedGame.platforms,
-        screenshots: importedGame.screenshots,
-        artwork_url: importedGame.artwork_url,
-        igdb_url: importedGame.igdb_url,
-        rating: importedGame.rating,
-        rating_count: importedGame.rating_count,
-        first_release_date: importedGame.first_release_date,
-        metadata_source: "igdb",
-        igdb_updated_at: new Date().toISOString(),
-        // discord_application_id is intentionally NOT updated
-      })
-      .eq("id", gameId);
-
-    if (updateError) {
-      return { success: false, error: updateError.message };
-    }
-
-    // Delete the duplicate imported record (its data is now on our target game)
-    // Clear igdb_id on imported game first to avoid unique constraint on our target
-    await admin.from("games").delete().eq("id", importedGame.id);
-
-    // Now set the correct slug on our target
-    await admin
-      .from("games")
-      .update({ slug: importedGame.slug })
-      .eq("id", gameId);
+  if (result.error === "mode_mismatch") {
+    return {
+      success: false,
+      error: "mode_mismatch",
+      expectedMode: result.expected as RemapMode,
+      actualMode: result.actual as RemapMode,
+    };
   }
-  // If same record, importById already updated it — nothing more to do
+  if (result.error === "merge_required") {
+    return { success: false, error: "merge_required" };
+  }
+  if (typeof result.error === "string") {
+    return { success: false, error: result.error };
+  }
 
   revalidatePath("/games");
   revalidatePath(`/games/${gameId}`);
-  return { success: true };
+
+  return {
+    success: true,
+    mode: result.mode as RemapMode,
+    deletedTargetId: (result.deleted_target_id as string | null) ?? null,
+  };
 }
 
 export async function syncFromIgdb(

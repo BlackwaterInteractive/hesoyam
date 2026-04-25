@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   Search,
   Gamepad2,
-  ExternalLink,
   AlertCircle,
+  ShieldCheck,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -184,8 +184,7 @@ export function GamesTable({
           <TableHeader>
             <TableRow className="border-border/50 hover:bg-transparent">
               <TableHead className="pl-4">Game</TableHead>
-              <TableHead>IGDB</TableHead>
-              <TableHead>Genres</TableHead>
+              <TableHead>IGDB ID</TableHead>
               <TableHead className="text-right">Sessions</TableHead>
               <TableHead className="text-right">Players</TableHead>
               <TableHead>App ID</TableHead>
@@ -196,7 +195,7 @@ export function GamesTable({
             {games.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={6}
                   className="h-32 text-center text-muted-foreground"
                 >
                   No games found.
@@ -208,6 +207,7 @@ export function GamesTable({
                 const genres = game.genres ?? [];
                 const hasCover = !!game.cover_url;
                 const hasGenres = genres.length > 0;
+                const adminRemapped = game.admin_remapped_at != null;
 
                 return (
                   <TableRow
@@ -234,13 +234,25 @@ export function GamesTable({
                           )}
                         </div>
                         <div className="min-w-0">
-                          <p
-                            className={`text-sm font-medium truncate ${
-                              isIgnored ? "line-through" : ""
-                            }`}
-                          >
-                            {game.name}
-                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <p
+                              className={`text-sm font-medium truncate ${
+                                isIgnored ? "line-through" : ""
+                              }`}
+                            >
+                              {game.name}
+                            </p>
+                            {adminRemapped && (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0 gap-0.5"
+                                title={`Admin remapped on ${new Date(game.admin_remapped_at!).toLocaleString()}`}
+                              >
+                                <ShieldCheck className="h-2.5 w-2.5" />
+                                Admin Remapped
+                              </Badge>
+                            )}
+                          </div>
                           {game.developer && (
                             <p className="text-xs text-muted-foreground truncate">
                               {game.developer}
@@ -250,40 +262,13 @@ export function GamesTable({
                       </div>
                     </TableCell>
                     <TableCell>
-                      {game.igdb_url ? (
-                        <a
-                          href={game.igdb_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-muted-foreground hover:text-indigo-400 transition-colors"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
+                      {game.igdb_id != null ? (
+                        <code className="text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded font-mono tabular-nums">
+                          {game.igdb_id}
+                        </code>
                       ) : (
                         <span className="text-muted-foreground/40">&mdash;</span>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {genres.slice(0, 2).map((genre) => (
-                          <Badge
-                            key={genre}
-                            variant="secondary"
-                            className="bg-muted text-muted-foreground text-[11px]"
-                          >
-                            {genre}
-                          </Badge>
-                        ))}
-                        {genres.length > 2 && (
-                          <span className="text-xs text-muted-foreground">
-                            +{genres.length - 2}
-                          </span>
-                        )}
-                        {genres.length === 0 && (
-                          <span className="text-muted-foreground/40">&mdash;</span>
-                        )}
-                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <span className="text-sm tabular-nums text-muted-foreground">

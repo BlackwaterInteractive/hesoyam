@@ -87,6 +87,8 @@ export type Database = {
           ignored: boolean
           discord_application_id: string | null
           created_at: string
+          admin_remapped_at: string | null
+          admin_remapped_by: string | null
         }
         Insert: {
           id?: string
@@ -111,6 +113,8 @@ export type Database = {
           ignored?: boolean
           discord_application_id?: string | null
           created_at?: string
+          admin_remapped_at?: string | null
+          admin_remapped_by?: string | null
         }
         Update: {
           id?: string
@@ -135,6 +139,8 @@ export type Database = {
           ignored?: boolean
           discord_application_id?: string | null
           created_at?: string
+          admin_remapped_at?: string | null
+          admin_remapped_by?: string | null
         }
         Relationships: []
       }
@@ -256,6 +262,23 @@ export type Database = {
     Functions: {
       get_admin_platform_overview: {
         Args: Record<string, never>
+        Returns: Json
+      }
+      admin_remap_plan: {
+        Args: {
+          p_source_id: string
+          p_target_igdb_id: number
+        }
+        Returns: Json
+      }
+      admin_remap_apply: {
+        Args: {
+          p_source_id: string
+          p_target_igdb_id: number
+          p_metadata: Json
+          p_expected_mode: string
+          p_actor_id: string | null
+        }
         Returns: Json
       }
     }
