@@ -243,7 +243,6 @@ export type Database = {
           user_id: string
           game_id: string
           status: 'want_to_play' | 'played' | 'completed'
-          notes: string | null
           personal_rating: number | null
           added_at: string
           status_changed_at: string
@@ -253,7 +252,6 @@ export type Database = {
           user_id: string
           game_id: string
           status?: 'want_to_play' | 'played' | 'completed'
-          notes?: string | null
           personal_rating?: number | null
           added_at?: string
           status_changed_at?: string
@@ -263,7 +261,6 @@ export type Database = {
           user_id?: string
           game_id?: string
           status?: 'want_to_play' | 'played' | 'completed'
-          notes?: string | null
           personal_rating?: number | null
           added_at?: string
           status_changed_at?: string
