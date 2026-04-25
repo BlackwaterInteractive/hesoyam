@@ -344,9 +344,16 @@ begin
     set game_id = p_source_id
     where game_id = p_target_id;
 
-  -- 4. Copy target's IGDB identity + metadata onto source. Same shape as
-  --    admin_remap_apply's UPDATE. discord_application_id and ignored on
-  --    source are intentionally not touched — source's Discord telemetry is
+  -- 4. Delete target row. Target has 0 FKs at this point (steps 1-3 repointed
+  --    everything). Deleting BEFORE source's UPDATE is critical — both
+  --    `igdb_id` and `slug` have UNIQUE constraints, so if target still
+  --    existed when we set source.igdb_id = v_target_igdb_id, the unique
+  --    index would fire and abort the whole transaction.
+  delete from public.games where id = p_target_id;
+
+  -- 5. Copy target's IGDB identity + metadata onto source. Now safe — target
+  --    is gone, no unique conflict. discord_application_id and ignored on
+  --    source are intentionally not touched: source's Discord telemetry is
   --    authoritative; ignored we already verified is false on both sides.
   update public.games
   set
@@ -384,11 +391,6 @@ begin
     admin_remapped_at  = now(),
     admin_remapped_by  = p_actor_id
   where id = p_source_id;
-
-  -- 5. Delete the target row. By this point all FK dependents have been
-  --    repointed; if anything slips through, the DELETE raises
-  --    foreign_key_violation and the whole txn rolls back.
-  delete from public.games where id = p_target_id;
 
   return jsonb_build_object(
     'success',           true,
