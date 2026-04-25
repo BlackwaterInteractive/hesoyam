@@ -118,6 +118,10 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
   const showIdentityDiff = mode !== "refresh";
   const willDeleteTarget = mode === "clean_retarget_empty_target" || isMerge;
 
+  // Display labels: prefer the actual game name, fall back to the role.
+  const sourceLabel = sourceName ? `${sourceName} (source)` : "source";
+  const targetLabel = targetName ? `${targetName} (target)` : "target";
+
   return (
     <div className="space-y-4">
       {/* Mode banner */}
@@ -225,7 +229,7 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
       {/* Preserved fields */}
       <div className="space-y-2">
         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-          Preserved on source
+          Preserved on {sourceLabel}
         </div>
         <div className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-1.5 text-xs">
           <div className="flex items-center justify-between">
@@ -239,7 +243,7 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
             <span>{String(source["ignored"] ?? false)}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Source row id</span>
+            <span className="text-muted-foreground">Row id</span>
             <code className="text-[11px] bg-muted/40 px-1.5 py-0.5 rounded">
               {String(source["id"])}
             </code>
@@ -253,21 +257,25 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
           FK attachments
         </div>
         <div className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2 text-xs">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-muted-foreground w-16">Source:</span>
+          <div className="flex items-start gap-2 flex-wrap">
+            <span className="text-muted-foreground shrink-0 max-w-[40%] truncate" title={sourceLabel}>
+              {sourceLabel}:
+            </span>
             <FkBadge count={fk_counts.source.sessions} label="sessions" />
             <FkBadge count={fk_counts.source.user_games} label="user_games" />
             <FkBadge count={fk_counts.source.library} label="library" />
             <span className="text-muted-foreground">— stay attached</span>
           </div>
           {fk_counts.target && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-muted-foreground w-16">Target:</span>
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="text-muted-foreground shrink-0 max-w-[40%] truncate" title={targetLabel}>
+                {targetLabel}:
+              </span>
               <FkBadge count={fk_counts.target.sessions} label="sessions" />
               <FkBadge count={fk_counts.target.user_games} label="user_games" />
               <FkBadge count={fk_counts.target.library} label="library" />
               {isMerge && (
-                <span className="text-amber-400">— reassign to source on merge</span>
+                <span className="text-amber-400">— reassign to {sourceLabel} on merge</span>
               )}
             </div>
           )}
@@ -279,13 +287,13 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
         <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 p-3 text-xs">
           <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <div className="font-medium">Target row will be deleted</div>
+            <div className="font-medium">{targetLabel} will be deleted</div>
             <div className="text-muted-foreground">
-              Empty row "{targetName}" (igdb_id {targetIgdbId}) has zero FK references and will be removed.
+              Empty row (igdb_id {targetIgdbId}) has zero FK references and will be removed.
               {pickStr(target, "discord_application_id") && (
                 <>
                   {" "}Its <code className="bg-muted/40 px-1 rounded">discord_application_id</code> (
-                  <code className="bg-muted/40 px-1 rounded">{pickStr(target, "discord_application_id")}</code>) will be lost — source's is preserved.
+                  <code className="bg-muted/40 px-1 rounded">{pickStr(target, "discord_application_id")}</code>) will be lost — {sourceLabel}'s is preserved.
                 </>
               )}
             </div>
@@ -297,7 +305,8 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
       {isMerge && mergeDetails && target && (
         <MergeSections
           mergeDetails={mergeDetails}
-          targetName={targetName}
+          sourceLabel={sourceLabel}
+          targetLabel={targetLabel}
           targetIgdbId={targetIgdbId}
           targetDiscordAppId={pickStr(target, "discord_application_id")}
           fkCountsTarget={fk_counts.target}
@@ -335,7 +344,8 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
 
 interface MergeSectionsProps {
   mergeDetails: NonNullable<RemapPlan["merge_details"]>;
-  targetName: string | null;
+  sourceLabel: string;
+  targetLabel: string;
   targetIgdbId: number | null;
   targetDiscordAppId: string | null;
   fkCountsTarget: { sessions: number; user_games: number; library: number } | null;
@@ -343,7 +353,8 @@ interface MergeSectionsProps {
 
 function MergeSections({
   mergeDetails,
-  targetName,
+  sourceLabel,
+  targetLabel,
   targetIgdbId,
   targetDiscordAppId,
   fkCountsTarget,
@@ -367,10 +378,10 @@ function MergeSections({
             <div className="font-medium">Merge blocked</div>
             <ul className="text-muted-foreground space-y-0.5 list-disc pl-4">
               {block_reasons.includes("source_ignored") && (
-                <li>Source row has <code className="bg-muted/40 px-1 rounded">ignored = true</code>. Un-ignore it via the row's edit panel before merging.</li>
+                <li>{sourceLabel} has <code className="bg-muted/40 px-1 rounded">ignored = true</code>. Un-ignore it via the row's edit panel before merging.</li>
               )}
               {block_reasons.includes("target_ignored") && (
-                <li>Target row has <code className="bg-muted/40 px-1 rounded">ignored = true</code>. Un-ignore it before merging.</li>
+                <li>{targetLabel} has <code className="bg-muted/40 px-1 rounded">ignored = true</code>. Un-ignore it before merging.</li>
               )}
             </ul>
           </div>
@@ -387,7 +398,7 @@ function MergeSections({
               {warnings.map((w, i) =>
                 w.type === "curated_library_drop" ? (
                   <li key={i}>
-                    {w.user_count} user{w.user_count === 1 ? "" : "s"} have curated source-side library data (non-default status or rating) that will be dropped on merge.
+                    {w.user_count} user{w.user_count === 1 ? "" : "s"} have curated library data on {sourceLabel} (non-default status or rating) that will be dropped on merge.
                   </li>
                 ) : (
                   <li key={i}>{w.type}</li>
@@ -403,7 +414,7 @@ function MergeSections({
         <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs">
           <Radio className="h-3.5 w-3.5 text-amber-400 shrink-0" />
           <span className="text-muted-foreground">
-            <span className="font-medium text-foreground">{live_sessions_count}</span> live session{live_sessions_count === 1 ? "" : "s"} in flight on either row. Sessions will reassign without interruption; clients listening on target's old game_id miss updates until next heartbeat.
+            <span className="font-medium text-foreground">{live_sessions_count}</span> live session{live_sessions_count === 1 ? "" : "s"} in flight on either row. Sessions will reassign without interruption; clients listening on the old game_id miss updates until next heartbeat.
           </span>
         </div>
       )}
@@ -415,10 +426,10 @@ function MergeSections({
         </div>
         <div className="rounded-lg border border-border/50 bg-muted/10 p-3 text-xs text-muted-foreground">
           {targetSessions === 0 ? (
-            <span>No sessions on target. Nothing to reassign.</span>
+            <span>No sessions on {targetLabel}. Nothing to reassign.</span>
           ) : (
             <span>
-              <span className="font-medium text-foreground">{targetSessions}</span> session{targetSessions === 1 ? "" : "s"} from target will be reassigned to source's id.
+              <span className="font-medium text-foreground">{targetSessions}</span> session{targetSessions === 1 ? "" : "s"} from {targetLabel} will be reassigned to {sourceLabel}.
             </span>
           )}
         </div>
@@ -431,11 +442,11 @@ function MergeSections({
         </div>
         <div className="rounded-lg border border-border/50 bg-muted/10 p-3 text-xs">
           {targetUserGames === 0 ? (
-            <span className="text-muted-foreground">No user_games on target.</span>
+            <span className="text-muted-foreground">No user_games on {targetLabel}.</span>
           ) : (
             <>
               <div className="text-muted-foreground mb-2">
-                <span className="font-medium text-foreground">{targetUserGames}</span> user_games row{targetUserGames === 1 ? "" : "s"} on target will move to source.{" "}
+                <span className="font-medium text-foreground">{targetUserGames}</span> user_games row{targetUserGames === 1 ? "" : "s"} on {targetLabel} will move to {sourceLabel}.{" "}
                 {user_games_overlap.length > 0 && (
                   <>
                     <span className="font-medium text-foreground">{user_games_overlap.length}</span> user{user_games_overlap.length === 1 ? "" : "s"} have rows on both sides — stats aggregated.
@@ -473,14 +484,14 @@ function MergeSections({
         </div>
         <div className="rounded-lg border border-border/50 bg-muted/10 p-3 text-xs">
           {targetLibrary === 0 ? (
-            <span className="text-muted-foreground">No library entries on target.</span>
+            <span className="text-muted-foreground">No library entries on {targetLabel}.</span>
           ) : (
             <>
               <div className="text-muted-foreground mb-2">
-                <span className="font-medium text-foreground">{targetLibrary}</span> library entr{targetLibrary === 1 ? "y" : "ies"} on target will move to source.{" "}
+                <span className="font-medium text-foreground">{targetLibrary}</span> library entr{targetLibrary === 1 ? "y" : "ies"} on {targetLabel} will move to {sourceLabel}.{" "}
                 {library_overlap.length > 0 && (
                   <>
-                    <span className="font-medium text-foreground">{library_overlap.length}</span> user{library_overlap.length === 1 ? "" : "s"} have entries on both sides — target side wins, source side dropped.
+                    <span className="font-medium text-foreground">{library_overlap.length}</span> user{library_overlap.length === 1 ? "" : "s"} have entries on both sides — {targetLabel} wins, {sourceLabel} entry dropped.
                   </>
                 )}
               </div>
@@ -497,7 +508,7 @@ function MergeSections({
                   {showLibrary && (
                     <div className="space-y-1 mt-2 max-h-48 overflow-y-auto">
                       {library_overlap.map((row) => (
-                        <LibraryOverlapRow key={row.user_id} row={row} />
+                        <LibraryOverlapRow key={row.user_id} row={row} sourceLabel={sourceLabel} />
                       ))}
                     </div>
                   )}
@@ -512,13 +523,13 @@ function MergeSections({
       <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 p-3 text-xs">
         <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <div className="font-medium">Target row will be deleted</div>
+          <div className="font-medium">{targetLabel} will be deleted</div>
           <div className="text-muted-foreground">
-            Row "{targetName}" (igdb_id {targetIgdbId}) is removed after FKs reassign.
+            Row (igdb_id {targetIgdbId}) is removed after FKs reassign.
             {targetDiscordAppId && (
               <>
                 {" "}Its <code className="bg-muted/40 px-1 rounded">discord_application_id</code> (
-                <code className="bg-muted/40 px-1 rounded">{targetDiscordAppId}</code>) will be lost — source's is preserved.
+                <code className="bg-muted/40 px-1 rounded">{targetDiscordAppId}</code>) will be lost — {sourceLabel}'s is preserved.
               </>
             )}
           </div>
@@ -544,7 +555,7 @@ function UserGamesOverlapRow({ row }: { row: UserGamesOverlapEntry }) {
   );
 }
 
-function LibraryOverlapRow({ row }: { row: LibraryOverlapEntry }) {
+function LibraryOverlapRow({ row, sourceLabel }: { row: LibraryOverlapEntry; sourceLabel: string }) {
   return (
     <div className={`rounded border p-2 grid grid-cols-[1fr_auto] gap-2 ${
       row.curated ? "border-amber-500/30 bg-amber-500/5" : "border-border/30 bg-muted/20"
@@ -552,7 +563,7 @@ function LibraryOverlapRow({ row }: { row: LibraryOverlapEntry }) {
       <div className="min-w-0">
         <code className="text-[10px] text-muted-foreground truncate block">{row.user_id}</code>
         {row.curated && (
-          <span className="text-[10px] text-amber-400">curated source-side will be dropped</span>
+          <span className="text-[10px] text-amber-400">curated entry on {sourceLabel} will be dropped</span>
         )}
       </div>
       <div className="text-[10px] text-muted-foreground whitespace-nowrap">
