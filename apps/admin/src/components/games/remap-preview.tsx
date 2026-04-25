@@ -1,13 +1,16 @@
 "use client";
 
-import { Loader2, AlertTriangle, RefreshCw, ArrowRightLeft, GitMerge, Gamepad2, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import { Loader2, AlertTriangle, RefreshCw, ArrowRightLeft, GitMerge, Gamepad2, ShieldCheck, ChevronDown, ChevronRight, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import type {
   IgdbMetadata,
+  LibraryOverlapEntry,
   RemapMode,
   RemapPlan,
+  UserGamesOverlapEntry,
 } from "@/app/(admin)/games/actions";
 
 interface RemapPreviewProps {
@@ -35,8 +38,8 @@ const MODE_LABELS: Record<RemapMode, { title: string; tagline: string; icon: typ
     icon: ArrowRightLeft,
   },
   merge_required: {
-    title: "Merge required",
-    tagline: "The target row has user data attached. Merge mode is shipping in PR 2 (#154 follow-up). This remap is blocked for now.",
+    title: "Merge retarget",
+    tagline: "Two rows for the same logical game will be collapsed into one. Source's id survives; target's IGDB identity is copied onto source; target row is deleted. FK references on target are reassigned atomically.",
     icon: GitMerge,
   },
 };
@@ -109,19 +112,25 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
   const targetCover = pickStr(target, "cover_url");
   const targetIgdbId = pickNum(target, "igdb_id");
 
-  const isMergeBlocked = mode === "merge_required";
+  const mergeDetails = plan.merge_details;
+  const isMerge = mode === "merge_required";
+  const isMergeBlocked = isMerge && (mergeDetails?.block_reasons.length ?? 0) > 0;
   const showIdentityDiff = mode !== "refresh";
-  const willDeleteTarget = mode === "clean_retarget_empty_target";
+  const willDeleteTarget = mode === "clean_retarget_empty_target" || isMerge;
 
   return (
     <div className="space-y-4">
       {/* Mode banner */}
       <div className={`flex items-start gap-3 rounded-lg border p-3 ${
         isMergeBlocked
-          ? "border-amber-500/30 bg-amber-500/5"
-          : "border-indigo-500/30 bg-indigo-500/5"
+          ? "border-rose-500/30 bg-rose-500/5"
+          : isMerge
+            ? "border-amber-500/30 bg-amber-500/5"
+            : "border-indigo-500/30 bg-indigo-500/5"
       }`}>
-        <Icon className={`h-5 w-5 mt-0.5 shrink-0 ${isMergeBlocked ? "text-amber-400" : "text-indigo-400"}`} />
+        <Icon className={`h-5 w-5 mt-0.5 shrink-0 ${
+          isMergeBlocked ? "text-rose-400" : isMerge ? "text-amber-400" : "text-indigo-400"
+        }`} />
         <div className="min-w-0">
           <div className="text-sm font-semibold">{cfg.title}</div>
           <div className="text-xs text-muted-foreground mt-0.5">{cfg.tagline}</div>
@@ -257,16 +266,16 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
               <FkBadge count={fk_counts.target.sessions} label="sessions" />
               <FkBadge count={fk_counts.target.user_games} label="user_games" />
               <FkBadge count={fk_counts.target.library} label="library" />
-              {isMergeBlocked && (
-                <span className="text-amber-400">— merge required to reassign</span>
+              {isMerge && (
+                <span className="text-amber-400">— reassign to source on merge</span>
               )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Empty target deletion warning */}
-      {willDeleteTarget && target && (
+      {/* Empty target deletion warning (T2 only — for merge T3, the deletion message is in the merge sections) */}
+      {willDeleteTarget && !isMerge && target && (
         <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 p-3 text-xs">
           <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
@@ -284,17 +293,15 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
         </div>
       )}
 
-      {/* Merge-required block message */}
-      {isMergeBlocked && target && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
-          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <div className="font-medium">Cannot apply from this UI yet</div>
-            <div className="text-muted-foreground">
-              Target row "{targetName}" (igdb_id {targetIgdbId}) has user data attached. Reassigning sessions, aggregating user_games, and merging library entries needs the <code className="bg-muted/40 px-1 rounded">admin_merge_games</code> RPC, which is shipping in PR 2 of #154.
-            </div>
-          </div>
-        </div>
+      {/* Mode 3 — Merge details */}
+      {isMerge && mergeDetails && target && (
+        <MergeSections
+          mergeDetails={mergeDetails}
+          targetName={targetName}
+          targetIgdbId={targetIgdbId}
+          targetDiscordAppId={pickStr(target, "discord_application_id")}
+          fkCountsTarget={fk_counts.target}
+        />
       )}
 
       <Separator className="bg-border/50" />
@@ -311,10 +318,251 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
         >
           {isApplying ? (
             <><Loader2 className="h-4 w-4 animate-spin mr-1.5" />Applying…</>
+          ) : isMerge ? (
+            "Confirm and merge"
           ) : (
             "Confirm and apply"
           )}
         </Button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mode 3 — merge-specific UI sections
+// ---------------------------------------------------------------------------
+
+interface MergeSectionsProps {
+  mergeDetails: NonNullable<RemapPlan["merge_details"]>;
+  targetName: string | null;
+  targetIgdbId: number | null;
+  targetDiscordAppId: string | null;
+  fkCountsTarget: { sessions: number; user_games: number; library: number } | null;
+}
+
+function MergeSections({
+  mergeDetails,
+  targetName,
+  targetIgdbId,
+  targetDiscordAppId,
+  fkCountsTarget,
+}: MergeSectionsProps) {
+  const [showUserGames, setShowUserGames] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
+
+  const { block_reasons, user_games_overlap, library_overlap, live_sessions_count, warnings } = mergeDetails;
+
+  const targetSessions = fkCountsTarget?.sessions ?? 0;
+  const targetUserGames = fkCountsTarget?.user_games ?? 0;
+  const targetLibrary = fkCountsTarget?.library ?? 0;
+
+  return (
+    <div className="space-y-3">
+      {/* Block reasons (red banner) */}
+      {block_reasons.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-xs">
+          <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-medium">Merge blocked</div>
+            <ul className="text-muted-foreground space-y-0.5 list-disc pl-4">
+              {block_reasons.includes("source_ignored") && (
+                <li>Source row has <code className="bg-muted/40 px-1 rounded">ignored = true</code>. Un-ignore it via the row's edit panel before merging.</li>
+              )}
+              {block_reasons.includes("target_ignored") && (
+                <li>Target row has <code className="bg-muted/40 px-1 rounded">ignored = true</code>. Un-ignore it before merging.</li>
+              )}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Warnings (amber, non-blocking) */}
+      {warnings.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-medium">Warnings</div>
+            <ul className="text-muted-foreground space-y-0.5 list-disc pl-4">
+              {warnings.map((w, i) =>
+                w.type === "curated_library_drop" ? (
+                  <li key={i}>
+                    {w.user_count} user{w.user_count === 1 ? "" : "s"} have curated source-side library data (non-default status or rating) that will be dropped on merge.
+                  </li>
+                ) : (
+                  <li key={i}>{w.type}</li>
+                )
+              )}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Live sessions notice */}
+      {live_sessions_count > 0 && (
+        <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs">
+          <Radio className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+          <span className="text-muted-foreground">
+            <span className="font-medium text-foreground">{live_sessions_count}</span> live session{live_sessions_count === 1 ? "" : "s"} in flight on either row. Sessions will reassign without interruption; clients listening on target's old game_id miss updates until next heartbeat.
+          </span>
+        </div>
+      )}
+
+      {/* Sessions reassignment summary */}
+      <div className="space-y-2">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          Sessions reassignment
+        </div>
+        <div className="rounded-lg border border-border/50 bg-muted/10 p-3 text-xs text-muted-foreground">
+          {targetSessions === 0 ? (
+            <span>No sessions on target. Nothing to reassign.</span>
+          ) : (
+            <span>
+              <span className="font-medium text-foreground">{targetSessions}</span> session{targetSessions === 1 ? "" : "s"} from target will be reassigned to source's id.
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* user_games aggregation */}
+      <div className="space-y-2">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          user_games aggregation
+        </div>
+        <div className="rounded-lg border border-border/50 bg-muted/10 p-3 text-xs">
+          {targetUserGames === 0 ? (
+            <span className="text-muted-foreground">No user_games on target.</span>
+          ) : (
+            <>
+              <div className="text-muted-foreground mb-2">
+                <span className="font-medium text-foreground">{targetUserGames}</span> user_games row{targetUserGames === 1 ? "" : "s"} on target will move to source.{" "}
+                {user_games_overlap.length > 0 && (
+                  <>
+                    <span className="font-medium text-foreground">{user_games_overlap.length}</span> user{user_games_overlap.length === 1 ? "" : "s"} have rows on both sides — stats aggregated.
+                  </>
+                )}
+              </div>
+              {user_games_overlap.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowUserGames((s) => !s)}
+                    className="flex items-center gap-1 text-muted-foreground hover:text-foreground mb-1"
+                  >
+                    {showUserGames ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                    {showUserGames ? "Hide" : "Show"} per-user breakdown
+                  </button>
+                  {showUserGames && (
+                    <div className="space-y-1 mt-2 max-h-48 overflow-y-auto">
+                      {user_games_overlap.map((row) => (
+                        <UserGamesOverlapRow key={row.user_id} row={row} />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* user_game_library merge */}
+      <div className="space-y-2">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          user_game_library merge
+        </div>
+        <div className="rounded-lg border border-border/50 bg-muted/10 p-3 text-xs">
+          {targetLibrary === 0 ? (
+            <span className="text-muted-foreground">No library entries on target.</span>
+          ) : (
+            <>
+              <div className="text-muted-foreground mb-2">
+                <span className="font-medium text-foreground">{targetLibrary}</span> library entr{targetLibrary === 1 ? "y" : "ies"} on target will move to source.{" "}
+                {library_overlap.length > 0 && (
+                  <>
+                    <span className="font-medium text-foreground">{library_overlap.length}</span> user{library_overlap.length === 1 ? "" : "s"} have entries on both sides — target side wins, source side dropped.
+                  </>
+                )}
+              </div>
+              {library_overlap.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowLibrary((s) => !s)}
+                    className="flex items-center gap-1 text-muted-foreground hover:text-foreground mb-1"
+                  >
+                    {showLibrary ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                    {showLibrary ? "Hide" : "Show"} per-user breakdown
+                  </button>
+                  {showLibrary && (
+                    <div className="space-y-1 mt-2 max-h-48 overflow-y-auto">
+                      {library_overlap.map((row) => (
+                        <LibraryOverlapRow key={row.user_id} row={row} />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Target row deletion */}
+      <div className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 p-3 text-xs">
+        <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <div className="font-medium">Target row will be deleted</div>
+          <div className="text-muted-foreground">
+            Row "{targetName}" (igdb_id {targetIgdbId}) is removed after FKs reassign.
+            {targetDiscordAppId && (
+              <>
+                {" "}Its <code className="bg-muted/40 px-1 rounded">discord_application_id</code> (
+                <code className="bg-muted/40 px-1 rounded">{targetDiscordAppId}</code>) will be lost — source's is preserved.
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UserGamesOverlapRow({ row }: { row: UserGamesOverlapEntry }) {
+  return (
+    <div className="rounded border border-border/30 bg-muted/20 p-2 grid grid-cols-[1fr_auto] gap-2">
+      <code className="text-[10px] text-muted-foreground truncate">{row.user_id}</code>
+      <div className="text-[10px] text-foreground tabular-nums whitespace-nowrap">
+        {row.source_total_time_secs}s + {row.target_total_time_secs}s ={" "}
+        <span className="text-emerald-400 font-medium">{row.merged_total_time_secs}s</span>
+        <span className="text-muted-foreground">
+          {" "}· {row.source_total_sessions} + {row.target_total_sessions} ={" "}
+          <span className="text-emerald-400">{row.merged_total_sessions}</span> sess
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function LibraryOverlapRow({ row }: { row: LibraryOverlapEntry }) {
+  return (
+    <div className={`rounded border p-2 grid grid-cols-[1fr_auto] gap-2 ${
+      row.curated ? "border-amber-500/30 bg-amber-500/5" : "border-border/30 bg-muted/20"
+    }`}>
+      <div className="min-w-0">
+        <code className="text-[10px] text-muted-foreground truncate block">{row.user_id}</code>
+        {row.curated && (
+          <span className="text-[10px] text-amber-400">curated source-side will be dropped</span>
+        )}
+      </div>
+      <div className="text-[10px] text-muted-foreground whitespace-nowrap">
+        <span className="line-through">
+          {row.source_status}{row.source_personal_rating != null ? ` · ★${row.source_personal_rating}` : ""}
+        </span>
+        {" → "}
+        <span className="text-emerald-400">
+          {row.target_status}{row.target_personal_rating != null ? ` · ★${row.target_personal_rating}` : ""}
+        </span>
       </div>
     </div>
   );

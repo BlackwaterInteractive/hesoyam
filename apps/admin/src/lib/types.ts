@@ -281,6 +281,15 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_merge_games: {
+        Args: {
+          p_source_id: string
+          p_target_id: string
+          p_metadata: Json
+          p_actor_id: string | null
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never

@@ -191,6 +191,47 @@ export interface RemapFkCounts {
 // RPC (loose because schema may evolve). UI only reads the fields it cares about.
 export type RemapGameRow = Record<string, unknown>;
 
+export type RemapBlockReason = "source_ignored" | "target_ignored";
+
+export interface UserGamesOverlapEntry {
+  user_id: string;
+  source_total_time_secs: number;
+  source_total_sessions: number;
+  source_first_played: string | null;
+  source_last_played: string | null;
+  target_total_time_secs: number;
+  target_total_sessions: number;
+  target_first_played: string | null;
+  target_last_played: string | null;
+  merged_total_time_secs: number;
+  merged_total_sessions: number;
+}
+
+export interface LibraryOverlapEntry {
+  user_id: string;
+  source_status: string;
+  source_personal_rating: number | null;
+  source_added_at: string;
+  target_status: string;
+  target_personal_rating: number | null;
+  target_added_at: string;
+  survives: "target";
+  curated: boolean;
+}
+
+export interface RemapWarning {
+  type: "curated_library_drop";
+  user_count: number;
+}
+
+export interface MergeDetails {
+  block_reasons: RemapBlockReason[];
+  user_games_overlap: UserGamesOverlapEntry[];
+  library_overlap: LibraryOverlapEntry[];
+  live_sessions_count: number;
+  warnings: RemapWarning[];
+}
+
 export interface RemapPlan {
   mode: RemapMode;
   source: RemapGameRow;
@@ -200,6 +241,7 @@ export interface RemapPlan {
     source: RemapFkCounts;
     target: RemapFkCounts | null;
   };
+  merge_details: MergeDetails | null;
 }
 
 export interface RemapPlanResponse {
@@ -273,13 +315,19 @@ export interface RemapApplyResponse {
   error?: string;
   expectedMode?: RemapMode;
   actualMode?: RemapMode;
+  blockReasons?: RemapBlockReason[];
 }
 
+// Dispatch entry point: chooses admin_remap_apply (modes 1/2) or
+// admin_merge_games (mode 3) based on the plan-derived `expectedMode`.
+// targetId is required when expectedMode === 'merge_required' (for the
+// merge RPC's by-id lookup); plan response provides it.
 export async function remapGame(
   gameId: string,
   igdbId: number,
   igdbMetadata: IgdbMetadata,
-  expectedMode: RemapMode
+  expectedMode: RemapMode,
+  targetId: string | null = null
 ): Promise<RemapApplyResponse> {
   const supabase = await createClient();
   const {
@@ -291,6 +339,51 @@ export async function remapGame(
   }
 
   const admin = createAdminClient();
+
+  // Mode 3: dispatch to admin_merge_games (atomic merge with FK reassignment).
+  if (expectedMode === "merge_required") {
+    if (!targetId) {
+      return { success: false, error: "merge_required mode requires targetId" };
+    }
+
+    const { data, error } = await admin.rpc("admin_merge_games", {
+      p_source_id: gameId,
+      p_target_id: targetId,
+      p_metadata: igdbMetadata as unknown as Json,
+      p_actor_id: session.user.id,
+    });
+
+    if (error) {
+      return { success: false, error: `Merge RPC failed: ${error.message}` };
+    }
+
+    const result = data as Record<string, unknown> | null;
+    if (!result) {
+      return { success: false, error: "Merge RPC returned null" };
+    }
+
+    if (result.error === "merge_blocked") {
+      return {
+        success: false,
+        error: "merge_blocked",
+        blockReasons: (result.block_reasons as RemapBlockReason[]) ?? [],
+      };
+    }
+    if (typeof result.error === "string") {
+      return { success: false, error: result.error };
+    }
+
+    revalidatePath("/games");
+    revalidatePath(`/games/${gameId}`);
+
+    return {
+      success: true,
+      mode: "merge_required",
+      deletedTargetId: (result.deleted_target_id as string | null) ?? null,
+    };
+  }
+
+  // Modes 1 & 2: admin_remap_apply with TOCTOU defense via expected_mode.
   const { data, error } = await admin.rpc("admin_remap_apply", {
     p_source_id: gameId,
     p_target_igdb_id: igdbId,

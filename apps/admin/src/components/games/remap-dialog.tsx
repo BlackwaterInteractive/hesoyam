@@ -109,13 +109,21 @@ export function RemapDialog({
     const expectedMode = plan.mode;
 
     startApply(async () => {
-      const result = await remapGame(gameId, selected.igdb_id, igdbMetadata, expectedMode);
+      const result = await remapGame(
+        gameId,
+        selected.igdb_id,
+        igdbMetadata,
+        expectedMode,
+        plan.target_id,
+      );
 
       if (result.success) {
         toast.success(
           result.mode === "refresh"
             ? `Metadata refreshed for "${igdbMetadata.name}"`
-            : `Game remapped to "${igdbMetadata.name}"`,
+            : result.mode === "merge_required"
+              ? `Merged into "${igdbMetadata.name}"`
+              : `Game remapped to "${igdbMetadata.name}"`,
         );
         setOpen(false);
         router.refresh();
@@ -137,9 +145,28 @@ export function RemapDialog({
         return;
       }
 
-      // merge_required shouldn't reach here (UI disables confirm) but defend.
+      // Ignored flag flipped between plan and apply.
+      if (result.error === "merge_blocked") {
+        toast.warning(
+          `Merge blocked: ${result.blockReasons?.join(", ") ?? "ignored flag"}. Reloading preview.`,
+        );
+        const fresh = await getRemapPlan(gameId, selected.igdb_id);
+        if (fresh.plan && fresh.igdbMetadata) {
+          setPlan(fresh.plan);
+          setIgdbMetadata(fresh.igdbMetadata);
+        }
+        return;
+      }
+
+      // merge_required from admin_remap_apply (shouldn't happen — we dispatch
+      // to admin_merge_games for that mode) but defend.
       if (result.error === "merge_required") {
-        toast.error("Merge mode required — not yet supported in this UI (PR 2).");
+        toast.error("Unexpected merge_required from apply; reloading preview.");
+        const fresh = await getRemapPlan(gameId, selected.igdb_id);
+        if (fresh.plan && fresh.igdbMetadata) {
+          setPlan(fresh.plan);
+          setIgdbMetadata(fresh.igdbMetadata);
+        }
         return;
       }
 
