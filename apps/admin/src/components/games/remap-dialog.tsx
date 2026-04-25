@@ -201,11 +201,16 @@ export function RemapDialog({
           </DialogTitle>
           {step === "search" && (
             <p className="text-sm text-muted-foreground mt-1">
-              Search IGDB and select the correct game. The Discord Application ID
+              Use this when the auto-resolver matched this Discord-detected game to the wrong IGDB entry. Search IGDB below for the <em>correct</em> game and we'll fix the row in place.
               {discordApplicationId ? (
-                <> (<code className="text-xs bg-muted px-1.5 py-0.5 rounded">{discordApplicationId}</code>)</>
-              ) : null}{" "}
-              will be preserved.
+                <>
+                  {" "}The Discord Application ID (
+                  <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{discordApplicationId}</code>
+                  ) is the source-of-truth for what was actually played, so it stays attached.
+                </>
+              ) : (
+                <> The Discord Application ID stays attached.</>
+              )}
             </p>
           )}
         </DialogHeader>
