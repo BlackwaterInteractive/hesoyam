@@ -465,3 +465,125 @@ export async function syncFromIgdb(
   return { success: true };
 }
 
+// ---------------------------------------------------------------------------
+// Game delete (admin dashboard, separate from remap)
+// ---------------------------------------------------------------------------
+// Plan/Apply pattern, same shape as remap. Plan inspects (read-only); apply
+// mutates under FOR UPDATE lock with a TOCTOU re-check.
+//
+// Block reasons (returned by both plan and apply):
+//   live_sessions — at least one game_sessions row with ended_at IS NULL.
+//                   Admin must let live sessions end before delete proceeds.
+
+export type DeleteBlockReason = "live_sessions";
+
+export interface DeletePlanFkCounts {
+  sessions: number;
+  user_games: number;
+  library: number;
+  live_sessions: number;
+  users_affected: number;
+}
+
+export interface DeletePerUserEntry {
+  user_id: string;
+  sessions: number;
+  total_time_secs: number;
+  has_user_games: boolean;
+  has_library: boolean;
+}
+
+export interface DeletePlan {
+  game: RemapGameRow;
+  fk_counts: DeletePlanFkCounts;
+  per_user: DeletePerUserEntry[];
+  block_reasons: DeleteBlockReason[];
+}
+
+export interface DeletePlanResponse {
+  plan?: DeletePlan;
+  error?: string;
+}
+
+export async function getDeletePlan(
+  gameId: string
+): Promise<DeletePlanResponse> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("admin_delete_game_plan", {
+    p_game_id: gameId,
+  });
+
+  if (error) {
+    return { error: `Plan RPC failed: ${error.message}` };
+  }
+
+  const planJson = data as Record<string, unknown> | null;
+  if (!planJson) {
+    return { error: "Plan RPC returned null" };
+  }
+  if (typeof planJson.error === "string") {
+    return { error: planJson.error };
+  }
+
+  return { plan: planJson as unknown as DeletePlan };
+}
+
+export interface DeleteApplyResponse {
+  success: boolean;
+  deletedGameId?: string;
+  sessionsDeleted?: number;
+  userGamesDeleted?: number;
+  libraryDeleted?: number;
+  error?: string;
+  blockReasons?: DeleteBlockReason[];
+}
+
+export async function deleteGame(
+  gameId: string
+): Promise<DeleteApplyResponse> {
+  const supabase = await createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("admin_delete_game", {
+    p_game_id: gameId,
+    p_actor_id: session.user.id,
+  });
+
+  if (error) {
+    return { success: false, error: `Delete RPC failed: ${error.message}` };
+  }
+
+  const result = data as Record<string, unknown> | null;
+  if (!result) {
+    return { success: false, error: "Delete RPC returned null" };
+  }
+
+  if (result.error === "delete_blocked") {
+    return {
+      success: false,
+      error: "delete_blocked",
+      blockReasons: (result.block_reasons as DeleteBlockReason[]) ?? [],
+    };
+  }
+  if (typeof result.error === "string") {
+    return { success: false, error: result.error };
+  }
+
+  revalidatePath("/games");
+
+  return {
+    success: true,
+    deletedGameId: (result.deleted_game_id as string) ?? gameId,
+    sessionsDeleted: (result.sessions_deleted as number) ?? 0,
+    userGamesDeleted: (result.user_games_deleted as number) ?? 0,
+    libraryDeleted: (result.library_deleted as number) ?? 0,
+  };
+}
+

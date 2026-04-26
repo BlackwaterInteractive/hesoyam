@@ -290,6 +290,19 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_delete_game_plan: {
+        Args: {
+          p_game_id: string
+        }
+        Returns: Json
+      }
+      admin_delete_game: {
+        Args: {
+          p_game_id: string
+          p_actor_id: string | null
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
