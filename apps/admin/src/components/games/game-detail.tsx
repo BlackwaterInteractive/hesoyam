@@ -34,6 +34,7 @@ import { formatDuration, formatDate } from "@/lib/format";
 import { updateGame, syncFromIgdb } from "@/app/(admin)/games/actions";
 import { toast } from "sonner";
 import { RemapDialog } from "@/components/games/remap-dialog";
+import { DeleteDialog } from "@/components/games/delete-dialog";
 import type { Game } from "@/lib/types";
 
 function SyncButton({ gameId, igdbId }: { gameId: string; igdbId: number }) {
@@ -229,6 +230,7 @@ export function GameDetail({
                   currentIgdbId={game.igdb_id}
                   discordApplicationId={game.discord_application_id}
                 />
+                <DeleteDialog gameId={game.id} gameName={game.name} />
               </div>
               {(game.developer || game.publisher) && (
                 <p className="text-sm text-muted-foreground">
