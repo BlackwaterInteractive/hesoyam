@@ -5,6 +5,10 @@ import { CacheService } from '../core/cache/cache.service';
 import { GameResolverService } from './game-resolver.service';
 import { GamesService, ResolvedGame } from './games.service';
 import { IgdbService } from '../igdb/igdb.service';
+import {
+  DiscordAppData,
+  DiscordAppService,
+} from '../discord/discord-app.service';
 
 /**
  * Covers the cascade + in-flight deduplication added for #79.
@@ -21,8 +25,11 @@ describe('GameResolverService', () => {
     findFuzzy: jest.Mock;
     createMinimal: jest.Mock;
     setApplicationId: jest.Mock;
+    applyDiscordData: jest.Mock;
+    setDiscordNameIfMissing: jest.Mock;
   };
-  let igdb: { searchAndImport: jest.Mock };
+  let igdb: { searchAndImport: jest.Mock; importById: jest.Mock };
+  let discordApp: { fetchAppData: jest.Mock };
 
   const noopLogger = () => ({
     trace: jest.fn(),
@@ -49,9 +56,17 @@ describe('GameResolverService', () => {
       findFuzzy: jest.fn(),
       createMinimal: jest.fn(),
       setApplicationId: jest.fn().mockResolvedValue(undefined),
+      applyDiscordData: jest.fn().mockResolvedValue(undefined),
+      setDiscordNameIfMissing: jest.fn().mockResolvedValue(undefined),
     };
     igdb = {
       searchAndImport: jest.fn(),
+      importById: jest.fn(),
+    };
+    // Default Discord lookup: returns null (no data) so the cascade behaves
+    // like the pre-#160 baseline. Per-test overrides exercise Tier 0c.
+    discordApp = {
+      fetchAppData: jest.fn().mockResolvedValue(null),
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -60,6 +75,7 @@ describe('GameResolverService', () => {
         CacheService,
         { provide: GamesService, useValue: games },
         { provide: IgdbService, useValue: igdb },
+        { provide: DiscordAppService, useValue: discordApp },
         {
           provide: ConfigService,
           useValue: {
@@ -77,6 +93,25 @@ describe('GameResolverService', () => {
 
     await moduleRef.init(); // triggers CacheService.onModuleInit
     service = moduleRef.get(GameResolverService);
+  });
+
+  // Helper for building Discord lookup return values in Tier 0c tests.
+  const makeDiscordData = (
+    overrides: Partial<DiscordAppData> = {},
+  ): DiscordAppData => ({
+    id: overrides.id ?? 'discord-app-id',
+    name: overrides.name ?? 'Red Dead Redemption 2',
+    description: overrides.description ?? null,
+    type: overrides.type ?? 5,
+    icon: overrides.icon ?? null,
+    cover_image: overrides.cover_image ?? null,
+    aliases: overrides.aliases ?? [],
+    igdb_id: overrides.igdb_id ?? null,
+    steam_app_id: overrides.steam_app_id ?? null,
+    gog_id: overrides.gog_id ?? null,
+    epic_id: overrides.epic_id ?? null,
+    xbox_app_id: overrides.xbox_app_id ?? null,
+    opencritic_id: overrides.opencritic_id ?? null,
   });
 
   // ── Cascade ─────────────────────────────────────────────────────────────
@@ -271,5 +306,116 @@ describe('GameResolverService', () => {
       await expect(p).rejects.toThrow('DB down');
     }
     expect(games.findExact).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Tier 0c: Discord application lookup (#160) ───────────────────────────
+
+  it('Tier 0c authoritative path: Discord has igdb sku → import by exact igdb_id, skip name-based tiers', async () => {
+    const result = makeResolved({ id: 'discord-resolved', igdb_id: 1970 });
+    games.findByApplicationId.mockResolvedValueOnce(null);
+    discordApp.fetchAppData.mockResolvedValueOnce(
+      makeDiscordData({ name: "Assassin's Creed IV", igdb_id: 1970 }),
+    );
+    igdb.importById.mockResolvedValueOnce(result);
+
+    const out = await service.resolve('Black Flag', 'app-1');
+
+    expect(out).toEqual(result);
+    expect(igdb.importById).toHaveBeenCalledWith(1970);
+    // Name-based tiers must not run when Discord gives us the id directly.
+    expect(games.findExact).not.toHaveBeenCalled();
+    expect(games.findFuzzy).not.toHaveBeenCalled();
+    expect(igdb.searchAndImport).not.toHaveBeenCalled();
+    // Discord-side fields persisted onto the resolved row.
+    expect(games.applyDiscordData).toHaveBeenCalledWith(
+      'discord-resolved',
+      expect.objectContaining({ igdb_id: 1970 }),
+    );
+  });
+
+  it('Tier 0c falls through with Discord canonical name when no igdb sku', async () => {
+    const result = makeResolved();
+    games.findByApplicationId.mockResolvedValueOnce(null);
+    discordApp.fetchAppData.mockResolvedValueOnce(
+      makeDiscordData({ name: 'Canonical Discord Name', igdb_id: null }),
+    );
+    games.findExact.mockResolvedValueOnce(null);
+    games.findFuzzy.mockResolvedValueOnce(null);
+    igdb.searchAndImport.mockResolvedValueOnce(result);
+
+    await service.resolve('Raw presence string', 'app-2');
+
+    // Existing tiers run, but with Discord's name as the search query.
+    expect(igdb.searchAndImport).toHaveBeenCalledWith('Canonical Discord Name');
+    expect(igdb.importById).not.toHaveBeenCalled();
+    expect(games.applyDiscordData).toHaveBeenCalled();
+  });
+
+  it('Tier 0c skips Discord data for type=1 bots and falls through with the original presence string', async () => {
+    const result = makeResolved();
+    games.findByApplicationId.mockResolvedValueOnce(null);
+    discordApp.fetchAppData.mockResolvedValueOnce(
+      makeDiscordData({ name: 'carl-bot', type: 1, igdb_id: null }),
+    );
+    games.findExact.mockResolvedValueOnce(null);
+    games.findFuzzy.mockResolvedValueOnce(null);
+    igdb.searchAndImport.mockResolvedValueOnce(result);
+
+    await service.resolve('Raw presence string', 'bot-app');
+
+    // Bot data ignored: search runs against the original presence string,
+    // and we do NOT persist Discord-side fields onto the row.
+    expect(igdb.searchAndImport).toHaveBeenCalledWith('Raw presence string');
+    expect(games.applyDiscordData).not.toHaveBeenCalled();
+    // #114: at least the original presence string should land on discord_name.
+    expect(games.setDiscordNameIfMissing).toHaveBeenCalled();
+  });
+
+  it('Tier 0c is bypassed entirely when no applicationId is provided', async () => {
+    const result = makeResolved();
+    games.findExact.mockResolvedValueOnce(result);
+
+    await service.resolve('RDR2');
+
+    expect(discordApp.fetchAppData).not.toHaveBeenCalled();
+    // No discord data → presence string captured for #114.
+    expect(games.setDiscordNameIfMissing).toHaveBeenCalledWith(
+      result.id,
+      'RDR2',
+    );
+  });
+
+  it('Tier 0c falls through gracefully when Discord returns null (404 or transient error)', async () => {
+    const result = makeResolved();
+    games.findByApplicationId.mockResolvedValueOnce(null);
+    discordApp.fetchAppData.mockResolvedValueOnce(null); // 404 or error
+    games.findExact.mockResolvedValueOnce(result);
+
+    const out = await service.resolve('RDR2', 'unknown-app');
+
+    expect(out).toEqual(result);
+    // Original presence string used for the search.
+    expect(games.findExact).toHaveBeenCalled();
+    // No Discord data → presence string captured for #114.
+    expect(games.setDiscordNameIfMissing).toHaveBeenCalled();
+  });
+
+  it('Tier 0c importById failure falls through with Discord name as the search', async () => {
+    const result = makeResolved();
+    games.findByApplicationId.mockResolvedValueOnce(null);
+    discordApp.fetchAppData.mockResolvedValueOnce(
+      makeDiscordData({ name: 'Discord Name', igdb_id: 99999 }),
+    );
+    igdb.importById.mockRejectedValueOnce(new Error('IGDB hiccup'));
+    games.findExact.mockResolvedValueOnce(null);
+    games.findFuzzy.mockResolvedValueOnce(null);
+    igdb.searchAndImport.mockResolvedValueOnce(result);
+
+    await service.resolve('Raw presence', 'app-z');
+
+    // Falls through using Discord's name (better than presence string).
+    expect(igdb.searchAndImport).toHaveBeenCalledWith('Discord Name');
+    // Discord-side fields still applied to the eventually-resolved row.
+    expect(games.applyDiscordData).toHaveBeenCalled();
   });
 });

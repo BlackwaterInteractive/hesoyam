@@ -3,6 +3,16 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { CacheService } from '../core/cache/cache.service';
 import { GamesService, ResolvedGame } from './games.service';
 import { IgdbService } from '../igdb/igdb.service';
+import {
+  DiscordAppData,
+  DiscordAppService,
+} from '../discord/discord-app.service';
+
+// Discord application type 1 is "bot". We treat bot lookups as "no useful
+// Discord data" — fall through to the existing IGDB cascade rather than
+// trying to import a bot as a game. (Discord game apps are type 5, but the
+// resolver doesn't depend on that — it only checks for the IGDB SKU.)
+const DISCORD_APP_TYPE_BOT = 1;
 
 @Injectable()
 export class GameResolverService {
@@ -19,6 +29,7 @@ export class GameResolverService {
     private games: GamesService,
     private igdb: IgdbService,
     private cache: CacheService,
+    private discordApp: DiscordAppService,
     @InjectPinoLogger(GameResolverService.name) private logger: PinoLogger,
   ) {}
 
@@ -94,7 +105,8 @@ export class GameResolverService {
    * The original cascade minus the sync cache hits, which are already
    * handled by [tryCacheHit] before coalescing.
    *
-   * Cascade order: applicationId DB → exact DB → fuzzy DB → IGDB → minimal.
+   * Cascade order: applicationId DB → Discord lookup → exact DB → fuzzy DB
+   * → IGDB → minimal.
    */
   private async resolveFromMiss(
     gameName: string,
@@ -115,37 +127,109 @@ export class GameResolverService {
       }
     }
 
+    // Tier 0c: Ask Discord about the application id. Discord curates a
+    // mapping from each app id to the game's IGDB id (third_party_skus
+    // distributor=igdb), which lets us skip fuzzy IGDB name search entirely
+    // when Discord knows the game. Eliminates #153-class mismatches for
+    // any game Discord has cataloged.
+    let discordData: DiscordAppData | null = null;
+    let searchName = gameName;
+    let searchNormalizedName = normalizedName;
+    if (applicationId) {
+      discordData = await this.discordApp.fetchAppData(applicationId);
+
+      // Bots fall through to the existing cascade — same as no Discord data.
+      // Their `name` and SKUs aren't game metadata, so we ignore the lookup.
+      if (discordData && discordData.type === DISCORD_APP_TYPE_BOT) {
+        this.logger.debug(
+          { gameName, applicationId, type: discordData.type },
+          'Discord app is a bot — falling through',
+        );
+        discordData = null;
+      }
+
+      if (discordData) {
+        if (discordData.igdb_id != null) {
+          // Authoritative path: Discord told us the game's IGDB id directly.
+          // Import by exact id — no name-based search, no chance of mismatch.
+          try {
+            const imported = await this.igdb.importById(discordData.igdb_id);
+            if (imported) {
+              await this.games.applyDiscordData(imported.id, discordData);
+              if (applicationId) {
+                await this.linkApplicationId(imported, applicationId);
+              }
+              this.logger.info(
+                {
+                  gameName,
+                  applicationId,
+                  gameId: imported.id,
+                  igdbId: discordData.igdb_id,
+                  discordName: discordData.name,
+                },
+                'Game resolved via Discord → IGDB id (authoritative)',
+              );
+              return this.cacheAndReturn(
+                normalizedName,
+                imported,
+                applicationId,
+              );
+            }
+          } catch (err) {
+            // IGDB import failure here is unusual but not fatal — fall
+            // through with Discord's name overriding the presence string,
+            // so the rest of the cascade has a better query.
+            this.logger.warn(
+              { err, gameName, applicationId, igdbId: discordData.igdb_id },
+              'Discord-mapped IGDB import failed — falling through with Discord name',
+            );
+          }
+        }
+
+        // No IGDB SKU (or import failed) but we still have Discord's
+        // canonical name. Use it for the downstream DB / IGDB-search tiers
+        // — it's more reliable than the raw presence string.
+        if (discordData.name) {
+          searchName = discordData.name;
+          searchNormalizedName = this.normalize(discordData.name);
+        }
+      }
+    }
+
     // Tier 2: Exact DB match (case-insensitive)
-    const exact = await this.games.findExact(normalizedName);
+    const exact = await this.games.findExact(searchNormalizedName);
     if (exact) {
       this.logger.debug(
         { gameName, gameId: exact.id },
         'Game resolved via exact DB match',
       );
       if (applicationId) await this.linkApplicationId(exact, applicationId);
+      await this.persistDiscordOrPresence(exact.id, discordData, gameName);
       return this.cacheAndReturn(normalizedName, exact, applicationId);
     }
 
     // Tier 3: Fuzzy DB match (pg_trgm)
-    const fuzzy = await this.games.findFuzzy(normalizedName);
+    const fuzzy = await this.games.findFuzzy(searchNormalizedName);
     if (fuzzy) {
       this.logger.debug(
         { gameName, gameId: fuzzy.id },
         'Game resolved via fuzzy DB match',
       );
       if (applicationId) await this.linkApplicationId(fuzzy, applicationId);
+      await this.persistDiscordOrPresence(fuzzy.id, discordData, gameName);
       return this.cacheAndReturn(normalizedName, fuzzy, applicationId);
     }
 
     // Tier 4: IGDB search + import
     try {
-      const igdbResult = await this.igdb.searchAndImport(gameName);
+      const igdbResult = await this.igdb.searchAndImport(searchName);
       if (igdbResult) {
         this.logger.info(
           { gameName, gameId: igdbResult.id },
           'Game resolved via IGDB',
         );
         if (applicationId) await this.linkApplicationId(igdbResult, applicationId);
+        await this.persistDiscordOrPresence(igdbResult.id, discordData, gameName);
         return this.cacheAndReturn(normalizedName, igdbResult, applicationId);
       }
     } catch (err) {
@@ -162,7 +246,26 @@ export class GameResolverService {
       'Game resolved via minimal fallback',
     );
     if (applicationId) await this.linkApplicationId(fallback, applicationId);
+    await this.persistDiscordOrPresence(fallback.id, discordData, gameName);
     return this.cacheAndReturn(normalizedName, fallback, applicationId);
+  }
+
+  /**
+   * Persist Discord-side metadata onto the resolved row. Prefers full RPC
+   * data when available; otherwise falls back to capturing the original
+   * presence string as `discord_name` so admins can see "Discord said X →
+   * matched to Y" even when we never reached the RPC endpoint. Closes #114.
+   */
+  private async persistDiscordOrPresence(
+    gameId: string,
+    discordData: DiscordAppData | null,
+    presenceName: string,
+  ): Promise<void> {
+    if (discordData) {
+      await this.games.applyDiscordData(gameId, discordData);
+    } else {
+      await this.games.setDiscordNameIfMissing(gameId, presenceName);
+    }
   }
 
   /**
