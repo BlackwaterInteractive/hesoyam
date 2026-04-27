@@ -5,8 +5,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
   type AssetSlot,
+  deleteFilesByName,
   deleteGameFolder,
-  deleteSlotFiles,
+  fileNameFromUrl,
   gameAssetFolder,
   getClientUploadAuth,
   uploadFromUrl,
@@ -80,12 +81,44 @@ const assetCache = new Map<
   number,
   { data: SteamGridDbAssetSet; expiresAt: number }
 >();
+// Per-(gameId, slot, page) cache for "load more" pagination. Keyed by
+// `${gameId}:${slot}:${page}` so paging back-and-forth on the same slot
+// doesn't re-hit SGDB.
+const slotPageCache = new Map<
+  string,
+  { data: SteamGridDbAsset[]; expiresAt: number }
+>();
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
 const SGDB_BASE = "https://www.steamgriddb.com/api/v2";
+
+// SGDB endpoint path per slot (without leading /games-id and without query).
+const SLOT_ENDPOINT: Record<AssetSlot, string> = {
+  grid: "grids",
+  icon: "icons",
+  hero: "heroes",
+  logo: "logos",
+};
+
+// Whether each slot's endpoint accepts the &epilepsy=false content filter.
+// SGDB rejects the param on logos and grids endpoints — they're warning-free
+// asset categories — so we omit it there.
+const SLOT_SUPPORTS_EPILEPSY: Record<AssetSlot, boolean> = {
+  grid: false,
+  icon: true,
+  hero: true,
+  logo: false,
+};
+
+function buildSlotQuery(slot: AssetSlot, gameId: number, page: number): string {
+  const epilepsy = SLOT_SUPPORTS_EPILEPSY[slot] ? "&epilepsy=false" : "";
+  // SGDB pagination is 0-indexed; we keep `page` 1-indexed everywhere else
+  // (dialog state, cache keys, action signatures) and translate only here.
+  return `/${SLOT_ENDPOINT[slot]}/game/${gameId}?humor=false&nsfw=false${epilepsy}&types=static,animated&page=${page - 1}`;
+}
 
 const SLOT_COLUMN: Record<AssetSlot, string> = {
   grid: "steamgriddb_grid_url",
@@ -182,6 +215,36 @@ export async function lookupSteamGridDb(input: {
   }
 }
 
+// Internal helper: fetch one slot's results for one page, with cache.
+// Used by both the bulk initial load (fetchSteamGridDbAssets) and the
+// per-slot pagination action (fetchSlotAssetsPage).
+async function fetchOneSlotPage(
+  steamGridDbGameId: number,
+  slot: AssetSlot,
+  page: number,
+): Promise<SteamGridDbAsset[]> {
+  const cacheKey = `${steamGridDbGameId}:${slot}:${page}`;
+  const cached = slotPageCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+  const url = `${SGDB_BASE}${buildSlotQuery(slot, steamGridDbGameId, page)}`;
+  const res = await fetch(url, {
+    headers: steamGridDbHeaders(),
+    cache: "no-store",
+  });
+  if (res.status === 404) {
+    slotPageCache.set(cacheKey, { data: [], expiresAt: Date.now() + ASSET_TTL_MS });
+    return [];
+  }
+  if (!res.ok) {
+    throw new Error(`SteamGridDB ${slot} fetch failed (${res.status})`);
+  }
+  const json = (await res.json()) as { data?: SteamGridDbAsset[] };
+  const data = json.data ?? [];
+  slotPageCache.set(cacheKey, { data, expiresAt: Date.now() + ASSET_TTL_MS });
+  return data;
+}
+
 export async function fetchSteamGridDbAssets(
   steamGridDbGameId: number,
 ): Promise<{ success: boolean; data?: SteamGridDbAssetSet; error?: string }> {
@@ -190,42 +253,55 @@ export async function fetchSteamGridDbAssets(
     return { success: true, data: cached.data };
   }
 
-  const headers = steamGridDbHeaders();
-  const queries: Record<keyof SteamGridDbAssetSet, string> = {
-    icons: `/icons/game/${steamGridDbGameId}?humor=false&nsfw=false&epilepsy=false`,
-    logos: `/logos/game/${steamGridDbGameId}?humor=false&nsfw=false`,
-    heroes: `/heroes/game/${steamGridDbGameId}?humor=false&nsfw=false&epilepsy=false`,
-    grids: `/grids/game/${steamGridDbGameId}?dimensions=600x900,920x430&humor=false&nsfw=false`,
-  };
-
+  // Always include animated variants (issue #170). SteamGridDB defaults to
+  // types=static; we override to surface GIF / animated WebP assets too.
+  // Grids: no dimensions filter — picker shows whatever sizes SGDB has.
+  // Initial load = page 1 of all 4 slots in parallel; pagination ("Load more")
+  // goes through fetchSlotAssetsPage below.
   try {
-    const slots = Object.keys(queries) as Array<keyof SteamGridDbAssetSet>;
-    const lists = await Promise.all(
-      slots.map(async (slot) => {
-        const res = await fetch(`${SGDB_BASE}${queries[slot]}`, {
-          headers,
-          cache: "no-store",
-        });
-        if (res.status === 404) return [] as SteamGridDbAsset[];
-        if (!res.ok) {
-          throw new Error(`SteamGridDB ${slot} fetch failed (${res.status})`);
-        }
-        const json = (await res.json()) as { data?: SteamGridDbAsset[] };
-        return json.data ?? [];
-      }),
-    );
-
-    const data: SteamGridDbAssetSet = {
-      icons: lists[slots.indexOf("icons")],
-      logos: lists[slots.indexOf("logos")],
-      heroes: lists[slots.indexOf("heroes")],
-      grids: lists[slots.indexOf("grids")],
-    };
+    const [grids, icons, heroes, logos] = await Promise.all([
+      fetchOneSlotPage(steamGridDbGameId, "grid", 1),
+      fetchOneSlotPage(steamGridDbGameId, "icon", 1),
+      fetchOneSlotPage(steamGridDbGameId, "hero", 1),
+      fetchOneSlotPage(steamGridDbGameId, "logo", 1),
+    ]);
+    const data: SteamGridDbAssetSet = { grids, icons, heroes, logos };
     assetCache.set(steamGridDbGameId, {
       data,
       expiresAt: Date.now() + ASSET_TTL_MS,
     });
     return { success: true, data };
+  } catch (err) {
+    return {
+      success: false,
+      error:
+        err instanceof Error ? err.message : "SteamGridDB asset fetch failed",
+    };
+  }
+}
+
+// "Load more" pagination for one slot. Returns this page's results plus a
+// hasMore hint (true if SGDB returned a full page, suggesting more exist).
+export async function fetchSlotAssetsPage(input: {
+  steamGridDbGameId: number;
+  slot: AssetSlot;
+  page: number;
+}): Promise<{
+  success: boolean;
+  data?: SteamGridDbAsset[];
+  hasMore?: boolean;
+  error?: string;
+}> {
+  if (input.page < 1) {
+    return { success: false, error: "page must be >= 1" };
+  }
+  try {
+    const data = await fetchOneSlotPage(
+      input.steamGridDbGameId,
+      input.slot,
+      input.page,
+    );
+    return { success: true, data, hasMore: data.length >= 50 };
   } catch (err) {
     return {
       success: false,
@@ -346,18 +422,6 @@ export async function saveCuration(
     };
   }
 
-  // Slots that previously held a URL but won't after this save → delete the
-  // orphan files in ImageKit. Best-effort; deletion failure doesn't block
-  // the DB write (DB is the source of truth, orphans are recoverable).
-  const orphanSlots = ALL_SLOTS.filter((slot) => {
-    const oldUrl = existingRow?.[SLOT_COLUMN[slot]];
-    const newUrl = slotUrls[slot];
-    return oldUrl != null && newUrl == null;
-  });
-  if (orphanSlots.length > 0) {
-    await deleteSlotFiles(gameId, orphanSlots);
-  }
-
   const updatePayload: Record<string, unknown> = {
     steamgriddb_game_id: steamGridDbGameId,
     assets_enriched: true,
@@ -370,6 +434,34 @@ export async function saveCuration(
 
   const { error } = await admin.from("games").update(updatePayload).eq("id", gameId);
   if (error) return { success: false, error: error.message };
+
+  // Orphan cleanup runs AFTER the DB write commits — that way if the DB write
+  // fails, the old files are still in ImageKit and the DB still references
+  // them (no broken-image link). Cleanup is best-effort; failures don't undo
+  // the save. Two cases that produce orphans:
+  //   1. Slot dropped: old URL was set, new is null → old file is orphan.
+  //   2. Slot format changed: extensions differ (e.g. PNG → GIF, where each
+  //      lives at a different path) → old-extension file is orphan, new-
+  //      extension file is what the DB now points at.
+  const orphanFileNames: string[] = [];
+  for (const slot of ALL_SLOTS) {
+    const oldUrl = existingRow?.[SLOT_COLUMN[slot]];
+    if (!oldUrl) continue;
+    const oldFile = fileNameFromUrl(oldUrl);
+    if (!oldFile) continue;
+    const newUrl = slotUrls[slot];
+    if (!newUrl) {
+      orphanFileNames.push(oldFile);
+      continue;
+    }
+    const newFile = fileNameFromUrl(newUrl);
+    if (newFile && newFile !== oldFile) {
+      orphanFileNames.push(oldFile);
+    }
+  }
+  if (orphanFileNames.length > 0) {
+    await deleteFilesByName(gameId, orphanFileNames);
+  }
 
   revalidatePath("/games");
   revalidatePath(`/games/${gameId}`);
