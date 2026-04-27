@@ -573,11 +573,18 @@ function EnrichmentSection({ game }: { game: Game }) {
   const [isClearing, startClear] = useTransition();
 
   const enriched = game.assets_enriched;
-  const slots: Array<{ slot: string; url: string | null; aspect: string }> = [
-    { slot: "Icon", url: game.steamgriddb_icon_url, aspect: "aspect-square" },
-    { slot: "Logo", url: game.steamgriddb_logo_url, aspect: "aspect-square" },
-    { slot: "Hero", url: game.steamgriddb_hero_url, aspect: "aspect-[3/1]" },
-    { slot: "Grid", url: game.steamgriddb_grid_url, aspect: "aspect-[3/4]" },
+  // Logos are transparent PNGs at varying aspect ratios — give them a wide
+  // container and object-contain so they're never cropped. Other slots fill.
+  const slots: Array<{
+    slot: string;
+    url: string | null;
+    aspect: string;
+    objectFit: string;
+  }> = [
+    { slot: "Grid", url: game.steamgriddb_grid_url, aspect: "aspect-[3/4]", objectFit: "object-cover" },
+    { slot: "Icon", url: game.steamgriddb_icon_url, aspect: "aspect-square", objectFit: "object-cover" },
+    { slot: "Hero", url: game.steamgriddb_hero_url, aspect: "aspect-[3/1]", objectFit: "object-cover" },
+    { slot: "Logo", url: game.steamgriddb_logo_url, aspect: "aspect-[2/1]", objectFit: "object-contain" },
   ];
 
   const handleReset = () => {
@@ -664,7 +671,7 @@ function EnrichmentSection({ game }: { game: Game }) {
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {slots.map(({ slot, url, aspect }) => (
+          {slots.map(({ slot, url, aspect, objectFit }) => (
             <div key={slot} className="flex flex-col gap-1.5">
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 {slot}
@@ -677,7 +684,7 @@ function EnrichmentSection({ game }: { game: Game }) {
                   <img
                     src={url}
                     alt={`${slot} asset`}
-                    className="h-full w-full object-cover"
+                    className={`h-full w-full ${objectFit}`}
                   />
                 ) : (
                   <ImageIcon className="h-5 w-5 text-muted-foreground/40" />
