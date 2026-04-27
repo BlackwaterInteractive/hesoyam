@@ -89,6 +89,21 @@ export type Database = {
           created_at: string
           admin_remapped_at: string | null
           admin_remapped_by: string | null
+          steamgriddb_game_id: number | null
+          steamgriddb_icon_url: string | null
+          steamgriddb_logo_url: string | null
+          steamgriddb_hero_url: string | null
+          steamgriddb_grid_url: string | null
+          assets_enriched: boolean
+          curated_at: string | null
+          curated_by: string | null
+          discord_name: string | null
+          discord_aliases: string[] | null
+          steam_app_id: string | null
+          gog_id: string | null
+          epic_id: string | null
+          xbox_app_id: string | null
+          opencritic_id: string | null
         }
         Insert: {
           id?: string
@@ -115,6 +130,21 @@ export type Database = {
           created_at?: string
           admin_remapped_at?: string | null
           admin_remapped_by?: string | null
+          steamgriddb_game_id?: number | null
+          steamgriddb_icon_url?: string | null
+          steamgriddb_logo_url?: string | null
+          steamgriddb_hero_url?: string | null
+          steamgriddb_grid_url?: string | null
+          assets_enriched?: boolean
+          curated_at?: string | null
+          curated_by?: string | null
+          discord_name?: string | null
+          discord_aliases?: string[] | null
+          steam_app_id?: string | null
+          gog_id?: string | null
+          epic_id?: string | null
+          xbox_app_id?: string | null
+          opencritic_id?: string | null
         }
         Update: {
           id?: string
@@ -141,6 +171,21 @@ export type Database = {
           created_at?: string
           admin_remapped_at?: string | null
           admin_remapped_by?: string | null
+          steamgriddb_game_id?: number | null
+          steamgriddb_icon_url?: string | null
+          steamgriddb_logo_url?: string | null
+          steamgriddb_hero_url?: string | null
+          steamgriddb_grid_url?: string | null
+          assets_enriched?: boolean
+          curated_at?: string | null
+          curated_by?: string | null
+          discord_name?: string | null
+          discord_aliases?: string[] | null
+          steam_app_id?: string | null
+          gog_id?: string | null
+          epic_id?: string | null
+          xbox_app_id?: string | null
+          opencritic_id?: string | null
         }
         Relationships: []
       }

@@ -7,6 +7,9 @@ import {
   Gamepad2,
   AlertCircle,
   ShieldCheck,
+  Sparkles,
+  Image as ImageIcon,
+  Square,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -41,19 +44,28 @@ type GameWithStats = Game & {
   player_count: number;
 };
 
+type SortMode = "recent" | "plays_desc";
+
 interface GamesTableProps {
   games: GameWithStats[];
   totalCount: number;
   currentPage: number;
   search: string;
   filter: string;
+  sort: SortMode;
 }
 
 const FILTER_OPTIONS = [
   { value: "all", label: "All Games" },
+  { value: "needs_enrichment", label: "Needs Enrichment" },
   { value: "missing_cover", label: "Missing Cover" },
   { value: "missing_genres", label: "Missing Genres" },
   { value: "ignored", label: "Ignored" },
+];
+
+const SORT_OPTIONS: { value: SortMode; label: string }[] = [
+  { value: "recent", label: "Most Recent" },
+  { value: "plays_desc", label: "By Plays (desc)" },
 ];
 
 function buildUrl(
@@ -65,7 +77,8 @@ function buildUrl(
       value !== undefined &&
       value !== "" &&
       !(key === "page" && value === 1) &&
-      !(key === "filter" && value === "all")
+      !(key === "filter" && value === "all") &&
+      !(key === "sort" && value === "recent")
     ) {
       sp.set(key, String(value));
     }
@@ -80,6 +93,7 @@ export function GamesTable({
   currentPage,
   search,
   filter,
+  sort,
 }: GamesTableProps) {
   const router = useRouter();
   const [searchValue, setSearchValue] = useState(search);
@@ -88,16 +102,17 @@ export function GamesTable({
   const totalPages = Math.max(1, Math.ceil(totalCount / 25));
 
   const pushParams = useCallback(
-    (q?: string, f?: string) => {
+    (q?: string, f?: string, s?: SortMode) => {
       router.push(
         buildUrl({
           q: (q ?? searchValue) || undefined,
           filter: (f ?? filter) || undefined,
+          sort: s ?? sort,
           page: undefined,
         })
       );
     },
-    [router, searchValue, filter]
+    [router, searchValue, filter, sort]
   );
 
   useEffect(() => {
@@ -116,6 +131,18 @@ export function GamesTable({
       buildUrl({
         q: searchValue || undefined,
         filter: value || undefined,
+        sort,
+        page: undefined,
+      })
+    );
+  }
+
+  function handleSortChange(value: string | null, _event: unknown) {
+    router.push(
+      buildUrl({
+        q: searchValue || undefined,
+        filter: filter || undefined,
+        sort: (value as SortMode) || undefined,
         page: undefined,
       })
     );
@@ -162,6 +189,18 @@ export function GamesTable({
             ))}
           </SelectContent>
         </Select>
+        <Select value={sort} onValueChange={handleSortChange}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Results count */}
@@ -188,7 +227,7 @@ export function GamesTable({
               <TableHead className="text-right">Sessions</TableHead>
               <TableHead className="text-right">Players</TableHead>
               <TableHead>App ID</TableHead>
-              <TableHead>Quality</TableHead>
+              <TableHead>Assets</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -291,26 +330,40 @@ export function GamesTable({
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 flex-wrap">
-                        {!hasCover && (
+                        {game.assets_enriched ? (
                           <Badge
-                            variant="destructive"
-                            className="text-[11px]"
+                            variant="secondary"
+                            className="text-[11px] bg-amber-500/10 text-amber-400 border-amber-500/20"
                           >
-                            <AlertCircle className="h-3 w-3 mr-0.5" />
-                            No Cover
+                            <Sparkles className="h-3 w-3 mr-0.5" />
+                            Enriched
+                          </Badge>
+                        ) : hasCover ? (
+                          <Badge
+                            variant="secondary"
+                            className="text-[11px] bg-muted text-muted-foreground"
+                          >
+                            <ImageIcon className="h-3 w-3 mr-0.5" />
+                            IGDB
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="secondary"
+                            className="text-[11px] bg-muted text-muted-foreground"
+                          >
+                            <Square className="h-3 w-3 mr-0.5" />
+                            Placeholder
                           </Badge>
                         )}
                         {!hasGenres && (
                           <Badge
                             variant="destructive"
                             className="text-[11px]"
+                            title="No genres on this row — fallback placeholder won't have a themed tile"
                           >
                             <AlertCircle className="h-3 w-3 mr-0.5" />
-                            No Genres
+                            No Metadata
                           </Badge>
-                        )}
-                        {hasCover && hasGenres && (
-                          <span className="text-xs text-green-400">OK</span>
                         )}
                       </div>
                     </TableCell>
@@ -333,6 +386,7 @@ export function GamesTable({
                     ? buildUrl({
                         q: search || undefined,
                         filter: filter || undefined,
+                        sort,
                         page: currentPage - 1,
                       })
                     : "#"
@@ -354,6 +408,7 @@ export function GamesTable({
                     href={buildUrl({
                       q: search || undefined,
                       filter: filter || undefined,
+                      sort,
                       page,
                     })}
                     isActive={page === currentPage}
@@ -370,6 +425,7 @@ export function GamesTable({
                     ? buildUrl({
                         q: search || undefined,
                         filter: filter || undefined,
+                        sort,
                         page: currentPage + 1,
                       })
                     : "#"

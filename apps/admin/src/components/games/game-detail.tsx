@@ -14,6 +14,9 @@ import {
   Trophy,
   History,
   RefreshCw,
+  Sparkles,
+  Image as ImageIcon,
+  RotateCcw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -32,9 +35,11 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatDuration, formatDate } from "@/lib/format";
 import { updateGame, syncFromIgdb } from "@/app/(admin)/games/actions";
+import { clearCuration } from "@/app/(admin)/games/steamgriddb-actions";
 import { toast } from "sonner";
 import { RemapDialog } from "@/components/games/remap-dialog";
 import { DeleteDialog } from "@/components/games/delete-dialog";
+import { SteamGridDbCurationDialog } from "@/components/games/steamgriddb-curation-dialog";
 import type { Game } from "@/lib/types";
 
 function SyncButton({ gameId, igdbId }: { gameId: string; igdbId: number }) {
@@ -396,6 +401,9 @@ export function GameDetail({
         </CardContent>
       </Card>
 
+      {/* Asset Enrichment */}
+      <EnrichmentSection game={game} />
+
       {/* Recent Sessions + Top Players side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Sessions */}
@@ -553,5 +561,132 @@ export function GameDetail({
         </Card>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Asset Enrichment section
+// ---------------------------------------------------------------------------
+
+function EnrichmentSection({ game }: { game: Game }) {
+  const router = useRouter();
+  const [isClearing, startClear] = useTransition();
+
+  const enriched = game.assets_enriched;
+  const slots: Array<{ slot: string; url: string | null; aspect: string }> = [
+    { slot: "Icon", url: game.steamgriddb_icon_url, aspect: "aspect-square" },
+    { slot: "Logo", url: game.steamgriddb_logo_url, aspect: "aspect-square" },
+    { slot: "Hero", url: game.steamgriddb_hero_url, aspect: "aspect-[3/1]" },
+    { slot: "Grid", url: game.steamgriddb_grid_url, aspect: "aspect-[3/4]" },
+  ];
+
+  const handleReset = () => {
+    if (!confirm("Clear all curated assets for this game? This deletes them from ImageKit.")) return;
+    startClear(async () => {
+      const res = await clearCuration(game.id);
+      if (res.success) {
+        toast.success("Enrichment cleared");
+        router.refresh();
+      } else {
+        toast.error(res.error ?? "Failed to clear enrichment");
+      }
+    });
+  };
+
+  const triggerButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      className="gap-1.5 border-border/50 hover:border-amber-500/30 hover:bg-amber-500/5 hover:text-amber-400 transition-all"
+    >
+      <Sparkles className="h-3.5 w-3.5" />
+      {enriched ? "Re-enrich" : "Enrich Assets"}
+    </Button>
+  );
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-amber-400" />
+            <CardTitle className="text-base font-semibold">Asset Enrichment</CardTitle>
+            {enriched ? (
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-400 border-amber-500/20"
+              >
+                Enriched
+              </Badge>
+            ) : (
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-1.5 py-0 h-4 bg-muted text-muted-foreground"
+              >
+                Not enriched
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <SteamGridDbCurationDialog
+              gameId={game.id}
+              gameName={game.name}
+              steamAppId={game.steam_app_id}
+              existingSteamGridDbId={game.steamgriddb_game_id}
+              trigger={triggerButton}
+            />
+            {enriched && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleReset}
+                disabled={isClearing}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                {isClearing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-3.5 w-3.5" />
+                )}
+                <span className="ml-1.5">Reset</span>
+              </Button>
+            )}
+          </div>
+        </div>
+        {enriched && game.curated_at && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Curated {formatDate(game.curated_at)}
+            {game.steamgriddb_game_id && (
+              <> · SteamGridDB #{game.steamgriddb_game_id}</>
+            )}
+          </p>
+        )}
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {slots.map(({ slot, url, aspect }) => (
+            <div key={slot} className="flex flex-col gap-1.5">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {slot}
+              </span>
+              <div
+                className={`rounded-md bg-black/30 overflow-hidden flex items-center justify-center ${aspect}`}
+              >
+                {url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={url}
+                    alt={`${slot} asset`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <ImageIcon className="h-5 w-5 text-muted-foreground/40" />
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
