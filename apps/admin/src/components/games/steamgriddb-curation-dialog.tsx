@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { UrlPasteRow } from "@/components/games/url-paste-row";
 import { toast } from "sonner";
 import {
   fetchSlotAssetsPage,
@@ -43,8 +44,9 @@ type Step = "search" | "pick" | "preview";
 type AssetSlot = "grid" | "icon" | "hero" | "logo";
 
 interface SlotState {
-  source: "steamgriddb" | "manual" | "skip";
+  source: "steamgriddb" | "url" | "manual" | "skip";
   sgdbAsset?: SteamGridDbAsset;
+  pastedUrl?: string;
   manualFile?: File;
   manualPreviewUrl?: string;
   manualUploadedUrl?: string;
@@ -349,11 +351,19 @@ export function SteamGridDbCurationDialog({
     });
   };
 
+  const handlePasteUrl = (slot: AssetSlot, validatedUrl: string) => {
+    // URL is already validated + image-probed by UrlPasteRow.
+    const current = slotStates[slot];
+    if (current.manualPreviewUrl) URL.revokeObjectURL(current.manualPreviewUrl);
+    updateSlot(slot, { source: "url", pastedUrl: validatedUrl });
+  };
+
   const slotResolvedPreview = (slot: AssetSlot): string | null => {
     const s = slotStates[slot];
     // Use the full asset URL (not thumb) for SteamGridDB picks so animated
     // GIF / WebP assets actually animate in the preview.
     if (s.source === "steamgriddb") return s.sgdbAsset?.url ?? s.sgdbAsset?.thumb ?? null;
+    if (s.source === "url") return s.pastedUrl ?? null;
     if (s.source === "manual") return s.manualPreviewUrl ?? null;
     return null;
   };
@@ -425,6 +435,8 @@ export function SteamGridDbCurationDialog({
         const s = slotStates[slot];
         if (s.source === "steamgriddb" && s.sgdbAsset) {
           picks[slot] = { type: "steamgriddb", sourceUrl: s.sgdbAsset.url };
+        } else if (s.source === "url" && s.pastedUrl) {
+          picks[slot] = { type: "url", sourceUrl: s.pastedUrl };
         } else if (s.source === "manual" && s.manualUploadedUrl) {
           picks[slot] = { type: "manual", imageKitUrl: s.manualUploadedUrl };
         } else {
@@ -503,6 +515,7 @@ export function SteamGridDbCurationDialog({
             onActiveSlotChange={setActiveSlot}
             onPickAsset={handlePickAsset}
             onManualFile={handleManualFile}
+            onPasteUrl={handlePasteUrl}
             slotHasMore={slotHasMore}
             slotLoadingMore={slotLoadingMore}
             onLoadMore={handleLoadMore}
@@ -543,7 +556,9 @@ export function SteamGridDbCurationDialog({
                           ? "Skipped"
                           : slotStates[slot].source === "manual"
                             ? "Manual upload"
-                            : "From SteamGridDB"}
+                            : slotStates[slot].source === "url"
+                              ? "Pasted URL"
+                              : "From SteamGridDB"}
                       </span>
                     </div>
                     <div
@@ -787,6 +802,7 @@ interface PickStepProps {
   onActiveSlotChange: (s: AssetSlot) => void;
   onPickAsset: (slot: AssetSlot, asset: SteamGridDbAsset) => void;
   onManualFile: (slot: AssetSlot, file: File | null) => void;
+  onPasteUrl: (slot: AssetSlot, validatedUrl: string) => void;
   slotHasMore: Record<AssetSlot, boolean>;
   slotLoadingMore: Record<AssetSlot, boolean>;
   onLoadMore: (slot: AssetSlot) => void;
@@ -803,6 +819,7 @@ function PickStep({
   onActiveSlotChange,
   onPickAsset,
   onManualFile,
+  onPasteUrl,
   slotHasMore,
   slotLoadingMore,
   onLoadMore,
@@ -853,6 +870,12 @@ function PickStep({
                   slot={slot}
                   state={s}
                   onChange={(file) => onManualFile(slot, file)}
+                />
+
+                <UrlPasteRow
+                  slot={slot}
+                  committedUrl={s.source === "url" ? (s.pastedUrl ?? null) : null}
+                  onCommit={(validatedUrl) => onPasteUrl(slot, validatedUrl)}
                 />
 
                 {picked && (
@@ -1016,3 +1039,4 @@ function ManualUploadZone({
     </div>
   );
 }
+

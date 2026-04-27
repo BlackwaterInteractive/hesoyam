@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { UrlPasteRow } from "@/components/games/url-paste-row";
 import { toast } from "sonner";
 import {
   fetchSlotAssetsPage,
@@ -82,8 +83,9 @@ interface SlotEditDialogProps {
 }
 
 interface PickedAsset {
-  source: "steamgriddb" | "manual" | "skip";
+  source: "steamgriddb" | "url" | "manual" | "skip";
   sgdbAsset?: SteamGridDbAsset;
+  pastedUrl?: string;
   manualFile?: File;
   manualPreviewUrl?: string;
 }
@@ -287,11 +289,10 @@ export function SlotEditDialog({
     });
   };
 
-  const previewSrc = (): string | null => {
-    if (pick.source === "steamgriddb")
-      return pick.sgdbAsset?.url ?? pick.sgdbAsset?.thumb ?? null;
-    if (pick.source === "manual") return pick.manualPreviewUrl ?? null;
-    return null;
+  const handlePasteUrl = (validatedUrl: string) => {
+    // URL is already validated + image-probed by UrlPasteRow.
+    if (pick.manualPreviewUrl) URL.revokeObjectURL(pick.manualPreviewUrl);
+    setPick({ source: "url", pastedUrl: validatedUrl });
   };
 
   const submit = (pickSource: PickSource, successMessage: string) => {
@@ -309,13 +310,15 @@ export function SlotEditDialog({
 
   const handleSave = () => {
     if (pick.source === "skip") {
-      toast.error("Pick a SteamGridDB asset or upload an image first");
+      toast.error("Pick a SteamGridDB asset, paste a URL, or upload an image first");
       return;
     }
     startSaving(async () => {
       let pickSource: PickSource;
       if (pick.source === "steamgriddb" && pick.sgdbAsset) {
         pickSource = { type: "steamgriddb", sourceUrl: pick.sgdbAsset.url };
+      } else if (pick.source === "url" && pick.pastedUrl) {
+        pickSource = { type: "url", sourceUrl: pick.pastedUrl };
       } else if (pick.source === "manual" && pick.manualFile) {
         // Upload manually-selected file via signature flow, then record the URL.
         try {
@@ -432,6 +435,7 @@ export function SlotEditDialog({
             loadingMore={loadingMore}
             onPickAsset={handlePickAsset}
             onManualFile={handleManualFile}
+            onPasteUrl={handlePasteUrl}
             onLoadMore={handleLoadMore}
             onBack={() => setStep("search")}
           />
@@ -441,25 +445,11 @@ export function SlotEditDialog({
           <>
             <Separator className="bg-border/50" />
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {pick.source === "skip" ? (
-                  <span>No pick yet</span>
-                ) : (
-                  <>
-                    <span>Selected:</span>
-                    <div className={`rounded bg-black/30 overflow-hidden h-8 ${SLOT_ASPECT[slot]}`}>
-                      {previewSrc() && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={previewSrc()!}
-                          alt="selection"
-                          className={`h-full w-full ${SLOT_OBJECT_FIT[slot]}`}
-                        />
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
+              <p className="text-xs text-muted-foreground">
+                {pick.source === "skip"
+                  ? "Pick an asset, paste a URL, or upload one"
+                  : "Ready to save"}
+              </p>
               <Button
                 onClick={handleSave}
                 disabled={isSaving || pick.source === "skip"}
@@ -694,6 +684,7 @@ interface PickPaneProps {
   loadingMore: boolean;
   onPickAsset: (asset: SteamGridDbAsset) => void;
   onManualFile: (file: File | null) => void;
+  onPasteUrl: (validatedUrl: string) => void;
   onLoadMore: () => void;
   onBack: () => void;
 }
@@ -708,6 +699,7 @@ function PickPane({
   loadingMore,
   onPickAsset,
   onManualFile,
+  onPasteUrl,
   onLoadMore,
   onBack,
 }: PickPaneProps) {
@@ -724,6 +716,12 @@ function PickPane({
       <div className="flex-1 overflow-y-auto min-h-0 -mx-1 px-1">
         <div className="flex flex-col gap-3">
           <ManualUploadZone state={pick} onChange={onManualFile} />
+
+          <UrlPasteRow
+            slot={slot}
+            committedUrl={pick.source === "url" ? (pick.pastedUrl ?? null) : null}
+            onCommit={onPasteUrl}
+          />
 
           {picked && (
             <>
@@ -865,3 +863,4 @@ function ManualUploadZone({
     </div>
   );
 }
+
