@@ -115,7 +115,9 @@ const SLOT_SUPPORTS_EPILEPSY: Record<AssetSlot, boolean> = {
 
 function buildSlotQuery(slot: AssetSlot, gameId: number, page: number): string {
   const epilepsy = SLOT_SUPPORTS_EPILEPSY[slot] ? "&epilepsy=false" : "";
-  return `/${SLOT_ENDPOINT[slot]}/game/${gameId}?humor=false&nsfw=false${epilepsy}&types=static,animated&page=${page}`;
+  // SGDB pagination is 0-indexed; we keep `page` 1-indexed everywhere else
+  // (dialog state, cache keys, action signatures) and translate only here.
+  return `/${SLOT_ENDPOINT[slot]}/game/${gameId}?humor=false&nsfw=false${epilepsy}&types=static,animated&page=${page - 1}`;
 }
 
 const SLOT_COLUMN: Record<AssetSlot, string> = {
