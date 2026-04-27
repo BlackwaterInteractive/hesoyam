@@ -82,10 +82,25 @@ interface SlotEditDialogProps {
 }
 
 interface PickedAsset {
-  source: "steamgriddb" | "manual" | "skip";
+  source: "steamgriddb" | "url" | "manual" | "skip";
   sgdbAsset?: SteamGridDbAsset;
+  pastedUrl?: string;
   manualFile?: File;
   manualPreviewUrl?: string;
+}
+
+// Issue #179: client-side URL validation matching the bulk dialog. Disable
+// the Use button until the input parses as an https URL.
+function validatePasteUrlClient(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const u = new URL(trimmed);
+    if (u.protocol !== "https:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
 }
 
 export function SlotEditDialog({
@@ -287,11 +302,14 @@ export function SlotEditDialog({
     });
   };
 
-  const previewSrc = (): string | null => {
-    if (pick.source === "steamgriddb")
-      return pick.sgdbAsset?.url ?? pick.sgdbAsset?.thumb ?? null;
-    if (pick.source === "manual") return pick.manualPreviewUrl ?? null;
-    return null;
+  const handlePasteUrl = (raw: string) => {
+    const validated = validatePasteUrlClient(raw);
+    if (!validated) {
+      toast.error("Paste a valid https:// URL");
+      return;
+    }
+    if (pick.manualPreviewUrl) URL.revokeObjectURL(pick.manualPreviewUrl);
+    setPick({ source: "url", pastedUrl: validated });
   };
 
   const submit = (pickSource: PickSource, successMessage: string) => {
@@ -309,13 +327,15 @@ export function SlotEditDialog({
 
   const handleSave = () => {
     if (pick.source === "skip") {
-      toast.error("Pick a SteamGridDB asset or upload an image first");
+      toast.error("Pick a SteamGridDB asset, paste a URL, or upload an image first");
       return;
     }
     startSaving(async () => {
       let pickSource: PickSource;
       if (pick.source === "steamgriddb" && pick.sgdbAsset) {
         pickSource = { type: "steamgriddb", sourceUrl: pick.sgdbAsset.url };
+      } else if (pick.source === "url" && pick.pastedUrl) {
+        pickSource = { type: "url", sourceUrl: pick.pastedUrl };
       } else if (pick.source === "manual" && pick.manualFile) {
         // Upload manually-selected file via signature flow, then record the URL.
         try {
@@ -432,6 +452,7 @@ export function SlotEditDialog({
             loadingMore={loadingMore}
             onPickAsset={handlePickAsset}
             onManualFile={handleManualFile}
+            onPasteUrl={handlePasteUrl}
             onLoadMore={handleLoadMore}
             onBack={() => setStep("search")}
           />
@@ -441,25 +462,11 @@ export function SlotEditDialog({
           <>
             <Separator className="bg-border/50" />
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {pick.source === "skip" ? (
-                  <span>No pick yet</span>
-                ) : (
-                  <>
-                    <span>Selected:</span>
-                    <div className={`rounded bg-black/30 overflow-hidden h-8 ${SLOT_ASPECT[slot]}`}>
-                      {previewSrc() && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={previewSrc()!}
-                          alt="selection"
-                          className={`h-full w-full ${SLOT_OBJECT_FIT[slot]}`}
-                        />
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
+              <p className="text-xs text-muted-foreground">
+                {pick.source === "skip"
+                  ? "Pick an asset, paste a URL, or upload one"
+                  : "Ready to save"}
+              </p>
               <Button
                 onClick={handleSave}
                 disabled={isSaving || pick.source === "skip"}
@@ -694,6 +701,7 @@ interface PickPaneProps {
   loadingMore: boolean;
   onPickAsset: (asset: SteamGridDbAsset) => void;
   onManualFile: (file: File | null) => void;
+  onPasteUrl: (raw: string) => void;
   onLoadMore: () => void;
   onBack: () => void;
 }
@@ -708,6 +716,7 @@ function PickPane({
   loadingMore,
   onPickAsset,
   onManualFile,
+  onPasteUrl,
   onLoadMore,
   onBack,
 }: PickPaneProps) {
@@ -724,6 +733,8 @@ function PickPane({
       <div className="flex-1 overflow-y-auto min-h-0 -mx-1 px-1">
         <div className="flex flex-col gap-3">
           <ManualUploadZone state={pick} onChange={onManualFile} />
+
+          <UrlPasteRow slot={slot} state={pick} onCommit={onPasteUrl} />
 
           {picked && (
             <>
@@ -862,6 +873,142 @@ function ManualUploadZone({
         className="hidden"
         onChange={(e) => onChange(e.target.files?.[0] ?? null)}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// URL paste row (issue #179)
+// ---------------------------------------------------------------------------
+
+type ProbeState = "idle" | "syntax-invalid" | "probing" | "image" | "not-image";
+
+// Image probe — see steamgriddb-curation-dialog.tsx for the rationale. Same
+// logic here, just keyed off PickedAsset rather than SlotState.
+function useImageProbe(raw: string): ProbeState {
+  const trimmed = raw.trim();
+  const validated = trimmed ? validatePasteUrlClient(trimmed) : null;
+
+  const [result, setResult] = useState<{ url: string; verdict: "image" | "not-image" } | null>(null);
+
+  useEffect(() => {
+    if (!validated) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const img = new Image();
+      img.onload = () => {
+        if (cancelled) return;
+        setResult({ url: validated, verdict: "image" });
+      };
+      img.onerror = () => {
+        if (cancelled) return;
+        setResult({ url: validated, verdict: "not-image" });
+      };
+      img.src = validated;
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [validated]);
+
+  if (!trimmed) return "idle";
+  if (!validated) return "syntax-invalid";
+  if (result?.url === validated) return result.verdict;
+  return "probing";
+}
+
+function UrlPasteRow({
+  slot,
+  state,
+  onCommit,
+}: {
+  slot: AssetSlot;
+  state: PickedAsset;
+  onCommit: (raw: string) => void;
+}) {
+  const [raw, setRaw] = useState<string>(
+    state.source === "url" ? (state.pastedUrl ?? "") : "",
+  );
+  const probeState = useImageProbe(raw);
+  const canUse = probeState === "image";
+  const validated = validatePasteUrlClient(raw);
+  const isCommitted =
+    state.source === "url" && validated !== null && state.pastedUrl === validated;
+
+  const handleCommit = () => {
+    if (!canUse) return;
+    onCommit(raw);
+  };
+
+  const statusText = (() => {
+    if (probeState === "idle") return "Or paste an image URL";
+    if (probeState === "syntax-invalid") return "Must be an https:// URL";
+    if (probeState === "probing") return "Checking the URL…";
+    if (probeState === "image") return "Looks like an image";
+    return "This doesn't look like an image";
+  })();
+
+  const statusTone =
+    probeState === "image"
+      ? "text-emerald-400"
+      : probeState === "not-image" || probeState === "syntax-invalid"
+        ? "text-destructive"
+        : "text-muted-foreground";
+
+  return (
+    <div>
+      <p className={`text-xs mb-2 ${statusTone}`}>{statusText}</p>
+      <div className="flex gap-2">
+        <Input
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleCommit();
+            }
+          }}
+          placeholder="https://example.com/image.png"
+          inputMode="url"
+          className="text-sm"
+          aria-label="Paste image URL"
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleCommit}
+          disabled={!canUse || isCommitted}
+        >
+          {isCommitted ? (
+            <>
+              <Check className="h-3.5 w-3.5 mr-1" />
+              Used
+            </>
+          ) : probeState === "probing" ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              Checking
+            </>
+          ) : (
+            "Use"
+          )}
+        </Button>
+      </div>
+      {/* Inline preview at slot aspect ratio once the probe confirms it's an
+          image. Lets the admin verify the visual *before* clicking Use. */}
+      {canUse && validated && (
+        <div
+          className={`mt-3 rounded-md bg-black/30 overflow-hidden max-w-[280px] ${SLOT_ASPECT[slot]}`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={validated}
+            alt={`${SLOT_LABELS[slot]} URL preview`}
+            className={`h-full w-full ${SLOT_OBJECT_FIT[slot]}`}
+          />
+        </div>
+      )}
     </div>
   );
 }
