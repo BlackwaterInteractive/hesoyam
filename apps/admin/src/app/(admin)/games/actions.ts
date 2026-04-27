@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { deleteGameFolder } from "@/lib/imagekit";
 import type { Json } from "@/lib/types";
 
 export async function updateGame(
@@ -373,13 +374,20 @@ export async function remapGame(
       return { success: false, error: result.error };
     }
 
+    // Identity changed: clean up enriched assets in ImageKit. DB columns are
+    // cleared inside admin_merge_games (see migration 20260428010000); this
+    // wipes the matching ImageKit folders. Best-effort — orphans are recoverable.
+    const deletedTargetId = (result.deleted_target_id as string | null) ?? null;
+    await deleteGameFolder(gameId);
+    if (deletedTargetId) await deleteGameFolder(deletedTargetId);
+
     revalidatePath("/games");
     revalidatePath(`/games/${gameId}`);
 
     return {
       success: true,
       mode: "merge_required",
-      deletedTargetId: (result.deleted_target_id as string | null) ?? null,
+      deletedTargetId,
     };
   }
 
@@ -416,13 +424,25 @@ export async function remapGame(
     return { success: false, error: result.error };
   }
 
+  const actualMode = result.mode as RemapMode;
+  const deletedTargetId = (result.deleted_target_id as string | null) ?? null;
+
+  // For modes that change identity, the DB-side admin_remap_apply has already
+  // cleared the row's steamgriddb_* + assets_enriched columns. Mirror that on
+  // the ImageKit side with a best-effort folder delete. Refresh mode skips —
+  // identity didn't change so the curated assets are still valid.
+  if (actualMode !== "refresh") {
+    await deleteGameFolder(gameId);
+    if (deletedTargetId) await deleteGameFolder(deletedTargetId);
+  }
+
   revalidatePath("/games");
   revalidatePath(`/games/${gameId}`);
 
   return {
     success: true,
-    mode: result.mode as RemapMode,
-    deletedTargetId: (result.deleted_target_id as string | null) ?? null,
+    mode: actualMode,
+    deletedTargetId,
   };
 }
 
