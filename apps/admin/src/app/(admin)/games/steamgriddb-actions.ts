@@ -48,6 +48,7 @@ export interface SteamGridDbAssetSet {
 
 export type PickSource =
   | { type: "steamgriddb"; sourceUrl: string }
+  | { type: "url"; sourceUrl: string }
   | { type: "manual"; imageKitUrl: string }
   | { type: "skip" };
 
@@ -170,6 +171,32 @@ function expectedManualPrefix(gameId: string): string {
   const endpoint = process.env.IMAGEKIT_URL_ENDPOINT;
   if (!endpoint) throw new Error("IMAGEKIT_URL_ENDPOINT missing");
   return `${endpoint.replace(/\/$/, "")}${gameAssetFolder(gameId)}/`;
+}
+
+// Validates a paste-URL pick (issue #179). Admin pastes an arbitrary URL,
+// the server hands it to ImageKit's URL-import via uploadFromUrl. Two checks:
+// must parse as a URL, must be https. Trust boundary noted below.
+//
+// SSRF: this opens a new code path where the server (well, ImageKit's fetcher
+// on our behalf) hits an admin-supplied URL. Mitigations: (1) admin-only,
+// behind auth; (2) https requirement blocks plain-HTTP link-local services;
+// (3) ImageKit fetches from its infra, not our VPC, so internal-network
+// targets aren't actually reachable from the request path. We accept this
+// risk; if the threat model changes, add a host allowlist or a private-IP
+// resolve check before forwarding to uploadFromUrl.
+function validatePasteUrl(raw: string): { ok: true; url: string } | { ok: false; error: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: false, error: "URL is empty" };
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { ok: false, error: "URL is not parseable" };
+  }
+  if (parsed.protocol !== "https:") {
+    return { ok: false, error: "URL must use https://" };
+  }
+  return { ok: true, url: parsed.toString() };
 }
 
 // Compute whether the OLD file for a slot is now an orphan, given the slot's
@@ -413,6 +440,12 @@ export async function saveCuration(
         error: `Manual upload for ${slot} must be inside ${manualPrefix}`,
       };
     }
+    if (pick?.type === "url") {
+      const validated = validatePasteUrl(pick.sourceUrl);
+      if (!validated.ok) {
+        return { success: false, error: `Pasted URL for ${slot}: ${validated.error}` };
+      }
+    }
   }
 
   // Snapshot existing slot URLs so we can compute which slots are being
@@ -436,7 +469,10 @@ export async function saveCuration(
         ALL_SLOTS.map(async (slot) => {
           const pick = picks[slot];
           if (!pick || pick.type === "skip") return;
-          if (pick.type === "steamgriddb") {
+          if (pick.type === "steamgriddb" || pick.type === "url") {
+            // Both flows hand a remote URL to ImageKit's URL-import. The URL
+            // type is admin-pasted; the steamgriddb type comes from the SGDB
+            // API. Same upload path either way.
             const { url } = await uploadFromUrl({
               gameId,
               slot,
@@ -520,6 +556,12 @@ export async function updateSingleSlot(
       error: `Manual upload for ${slot} must be inside ${manualPrefix}`,
     };
   }
+  if (pick.type === "url") {
+    const validated = validatePasteUrl(pick.sourceUrl);
+    if (!validated.ok) {
+      return { success: false, error: `Pasted URL: ${validated.error}` };
+    }
+  }
 
   // Snapshot all slot URLs so we can (a) cleanly compute the orphan for the
   // edited slot and (b) recompute assets_enriched from the post-write state.
@@ -535,7 +577,8 @@ export async function updateSingleSlot(
   let newUrl: string | undefined;
   let existingRow: Record<string, string | null> | null = null;
   try {
-    if (pick.type === "steamgriddb") {
+    if (pick.type === "steamgriddb" || pick.type === "url") {
+      // Same upload path: hand the remote URL to ImageKit's URL-import.
       const [existingResult, uploaded] = await Promise.all([
         existingRowPromise,
         uploadFromUrl({ gameId, slot, sourceUrl: pick.sourceUrl }),
