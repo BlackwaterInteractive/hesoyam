@@ -497,6 +497,7 @@ export function SteamGridDbCurationDialog({
           <PickStep
             picked={picked}
             assetSet={assetSet}
+            isLoadingAssets={isLoadingAssets}
             slotStates={slotStates}
             activeSlot={activeSlot}
             onActiveSlotChange={setActiveSlot}
@@ -780,6 +781,7 @@ function SearchStep({
 interface PickStepProps {
   picked: SteamGridDbGame | null;
   assetSet: SteamGridDbAssetSet | null;
+  isLoadingAssets: boolean;
   slotStates: Record<AssetSlot, SlotState>;
   activeSlot: AssetSlot;
   onActiveSlotChange: (s: AssetSlot) => void;
@@ -795,6 +797,7 @@ interface PickStepProps {
 function PickStep({
   picked,
   assetSet,
+  isLoadingAssets,
   slotStates,
   activeSlot,
   onActiveSlotChange,
@@ -856,7 +859,11 @@ function PickStep({
                   <>
                     <Separator className="bg-border/50" />
                     <div>
-                      {sgdbList.length === 0 ? (
+                      {isLoadingAssets ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : sgdbList.length === 0 ? (
                         <p className="text-sm text-muted-foreground italic">
                           No SteamGridDB results — use upload above.
                         </p>

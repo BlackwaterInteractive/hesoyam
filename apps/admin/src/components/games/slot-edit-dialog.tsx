@@ -426,6 +426,7 @@ export function SlotEditDialog({
             slot={slot}
             picked={picked}
             assets={assets}
+            isLoadingAssets={isLoadingAssets}
             pick={pick}
             hasMore={hasMore}
             loadingMore={loadingMore}
@@ -687,6 +688,7 @@ interface PickPaneProps {
   slot: AssetSlot;
   picked: SteamGridDbGame | null;
   assets: SteamGridDbAsset[];
+  isLoadingAssets: boolean;
   pick: PickedAsset;
   hasMore: boolean;
   loadingMore: boolean;
@@ -700,6 +702,7 @@ function PickPane({
   slot,
   picked,
   assets,
+  isLoadingAssets,
   pick,
   hasMore,
   loadingMore,
@@ -726,7 +729,11 @@ function PickPane({
             <>
               <Separator className="bg-border/50" />
               <div>
-                {assets.length === 0 ? (
+                {isLoadingAssets ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : assets.length === 0 ? (
                   <p className="text-sm text-muted-foreground italic">
                     No SteamGridDB results — use upload above.
                   </p>
