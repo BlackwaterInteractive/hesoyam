@@ -57,6 +57,12 @@ export interface SaveCurationInput {
   picks: Partial<Record<AssetSlot, PickSource>>;
 }
 
+export interface UpdateSingleSlotInput {
+  gameId: string;
+  slot: AssetSlot;
+  pick: PickSource;
+}
+
 export interface UploadAuth {
   token: string;
   expire: number;
@@ -142,6 +148,48 @@ async function requireSession() {
   } = await supabase.auth.getSession();
   if (!session) throw new Error("Not authenticated");
   return session;
+}
+
+// Cache-busting version stamp. ImageKit file paths are deterministic
+// (/games/{id}/{slot}.jpg) so re-uploads overwrite cleanly, but every
+// cache layer (browser, ImageKit edge, ISP) keys on the URL string and
+// would serve stale bytes after an overwrite. Appending ?v={ts} produces
+// a fresh cache key per save while keeping the underlying file path
+// stable. ImageKit ignores unknown query params, so transforms (?tr=...)
+// still work when consumers append them.
+function withCacheBuster(url: string): string {
+  const stamp = Date.now();
+  return url.includes("?") ? `${url}&v=${stamp}` : `${url}?v=${stamp}`;
+}
+
+// Defense in depth: manual uploads are direct-to-ImageKit via signature, so
+// the returned URL must live inside this game's ImageKit folder. Anything
+// else is either a misconfigured client or an attempt to record a foreign
+// URL. Returns the expected prefix string (caller compares with startsWith).
+function expectedManualPrefix(gameId: string): string {
+  const endpoint = process.env.IMAGEKIT_URL_ENDPOINT;
+  if (!endpoint) throw new Error("IMAGEKIT_URL_ENDPOINT missing");
+  return `${endpoint.replace(/\/$/, "")}${gameAssetFolder(gameId)}/`;
+}
+
+// Compute whether the OLD file for a slot is now an orphan, given the slot's
+// before/after URLs. Two cases produce orphans:
+//   1. Slot dropped: old URL was set, new is null → old file is orphan.
+//   2. Slot format changed: extensions differ (e.g. PNG → GIF, where each
+//      lives at a different path) → old-extension file is orphan, new-
+//      extension file is what the DB now points at.
+// Returns the old file's name to delete, or null if there's nothing to clean.
+function computeSlotOrphan(
+  oldUrl: string | null | undefined,
+  newUrl: string | undefined,
+): string | null {
+  if (!oldUrl) return null;
+  const oldFile = fileNameFromUrl(oldUrl);
+  if (!oldFile) return null;
+  if (!newUrl) return oldFile; // slot dropped
+  const newFile = fileNameFromUrl(newUrl);
+  if (newFile && newFile !== oldFile) return oldFile; // extension changed
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -339,9 +387,11 @@ export async function saveCuration(
 
   const { gameId, steamGridDbGameId, picks } = input;
 
-  const endpoint = process.env.IMAGEKIT_URL_ENDPOINT;
-  if (!endpoint) {
-    return { success: false, error: "IMAGEKIT_URL_ENDPOINT missing" };
+  let manualPrefix: string;
+  try {
+    manualPrefix = expectedManualPrefix(gameId);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Config missing" };
   }
 
   const hasAnyPick = ALL_SLOTS.some((slot) => {
@@ -355,30 +405,15 @@ export async function saveCuration(
     };
   }
 
-  // Defense in depth: manual uploads are direct-to-ImageKit via signature, so the
-  // returned URL must live inside this game's ImageKit folder. Anything else is
-  // either a misconfigured client or an attempt to record a foreign URL.
-  const expectedManualPrefix = `${endpoint.replace(/\/$/, "")}${gameAssetFolder(gameId)}/`;
   for (const slot of ALL_SLOTS) {
     const pick = picks[slot];
-    if (pick?.type === "manual" && !pick.imageKitUrl.startsWith(expectedManualPrefix)) {
+    if (pick?.type === "manual" && !pick.imageKitUrl.startsWith(manualPrefix)) {
       return {
         success: false,
-        error: `Manual upload for ${slot} must be inside ${expectedManualPrefix}`,
+        error: `Manual upload for ${slot} must be inside ${manualPrefix}`,
       };
     }
   }
-
-  // Cache-busting version stamp. ImageKit file paths are deterministic
-  // (/games/{id}/{slot}.jpg) so re-uploads overwrite cleanly, but every
-  // cache layer (browser, ImageKit edge, ISP) keys on the URL string and
-  // would serve stale bytes after an overwrite. Appending ?v={ts} produces
-  // a fresh cache key per save while keeping the underlying file path
-  // stable. ImageKit ignores unknown query params, so transforms (?tr=...)
-  // still work when consumers append them.
-  const cacheBust = Date.now();
-  const withCacheBuster = (url: string): string =>
-    url.includes("?") ? `${url}&v=${cacheBust}` : `${url}?v=${cacheBust}`;
 
   // Snapshot existing slot URLs so we can compute which slots are being
   // dropped (orphan cleanup, issue #169). Done in parallel with the uploads
@@ -438,29 +473,112 @@ export async function saveCuration(
   // Orphan cleanup runs AFTER the DB write commits — that way if the DB write
   // fails, the old files are still in ImageKit and the DB still references
   // them (no broken-image link). Cleanup is best-effort; failures don't undo
-  // the save. Two cases that produce orphans:
-  //   1. Slot dropped: old URL was set, new is null → old file is orphan.
-  //   2. Slot format changed: extensions differ (e.g. PNG → GIF, where each
-  //      lives at a different path) → old-extension file is orphan, new-
-  //      extension file is what the DB now points at.
+  // the save.
   const orphanFileNames: string[] = [];
   for (const slot of ALL_SLOTS) {
-    const oldUrl = existingRow?.[SLOT_COLUMN[slot]];
-    if (!oldUrl) continue;
-    const oldFile = fileNameFromUrl(oldUrl);
-    if (!oldFile) continue;
-    const newUrl = slotUrls[slot];
-    if (!newUrl) {
-      orphanFileNames.push(oldFile);
-      continue;
-    }
-    const newFile = fileNameFromUrl(newUrl);
-    if (newFile && newFile !== oldFile) {
-      orphanFileNames.push(oldFile);
-    }
+    const orphan = computeSlotOrphan(
+      existingRow?.[SLOT_COLUMN[slot]],
+      slotUrls[slot],
+    );
+    if (orphan) orphanFileNames.push(orphan);
   }
   if (orphanFileNames.length > 0) {
     await deleteFilesByName(gameId, orphanFileNames);
+  }
+
+  revalidatePath("/games");
+  revalidatePath(`/games/${gameId}`);
+  return { success: true };
+}
+
+// Per-slot edit (issue #176). Updates exactly one slot's URL + curated_at /
+// curated_by. Leaves the other 3 slot columns and steamgriddb_game_id alone.
+// Sets assets_enriched=true if at least one slot ends up populated; otherwise
+// leaves it as the row's current value (use clearCuration to wipe everything).
+export async function updateSingleSlot(
+  input: UpdateSingleSlotInput,
+): Promise<{ success: boolean; error?: string }> {
+  let session;
+  try {
+    session = await requireSession();
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Auth failed" };
+  }
+
+  const { gameId, slot, pick } = input;
+
+  let manualPrefix: string;
+  try {
+    manualPrefix = expectedManualPrefix(gameId);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Config missing" };
+  }
+
+  if (pick.type === "manual" && !pick.imageKitUrl.startsWith(manualPrefix)) {
+    return {
+      success: false,
+      error: `Manual upload for ${slot} must be inside ${manualPrefix}`,
+    };
+  }
+
+  // Snapshot all slot URLs so we can (a) cleanly compute the orphan for the
+  // edited slot and (b) recompute assets_enriched from the post-write state.
+  const admin = createAdminClient();
+  const existingRowPromise = admin
+    .from("games")
+    .select(
+      "steamgriddb_icon_url, steamgriddb_logo_url, steamgriddb_hero_url, steamgriddb_grid_url",
+    )
+    .eq("id", gameId)
+    .maybeSingle();
+
+  let newUrl: string | undefined;
+  let existingRow: Record<string, string | null> | null = null;
+  try {
+    if (pick.type === "steamgriddb") {
+      const [existingResult, uploaded] = await Promise.all([
+        existingRowPromise,
+        uploadFromUrl({ gameId, slot, sourceUrl: pick.sourceUrl }),
+      ]);
+      existingRow = (existingResult.data as Record<string, string | null> | null) ?? null;
+      newUrl = withCacheBuster(uploaded.url);
+    } else if (pick.type === "manual") {
+      const existingResult = await existingRowPromise;
+      existingRow = (existingResult.data as Record<string, string | null> | null) ?? null;
+      newUrl = withCacheBuster(pick.imageKitUrl);
+    } else {
+      // skip = clear this slot
+      const existingResult = await existingRowPromise;
+      existingRow = (existingResult.data as Record<string, string | null> | null) ?? null;
+      newUrl = undefined;
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: `ImageKit upload failed: ${err instanceof Error ? err.message : "unknown"}`,
+    };
+  }
+
+  // Recompute assets_enriched from the resulting state (this slot's new value
+  // + the other three slots' existing values). If at least one slot ends up
+  // populated, the row is still considered enriched.
+  const willHaveAny = ALL_SLOTS.some((s) =>
+    s === slot ? !!newUrl : !!existingRow?.[SLOT_COLUMN[s]],
+  );
+
+  const updatePayload: Record<string, unknown> = {
+    [SLOT_COLUMN[slot]]: newUrl ?? null,
+    assets_enriched: willHaveAny,
+    curated_at: new Date().toISOString(),
+    curated_by: session.user.id,
+  };
+
+  const { error } = await admin.from("games").update(updatePayload).eq("id", gameId);
+  if (error) return { success: false, error: error.message };
+
+  const orphan = computeSlotOrphan(existingRow?.[SLOT_COLUMN[slot]], newUrl);
+  if (orphan) {
+    await deleteFilesByName(gameId, [orphan]);
   }
 
   revalidatePath("/games");
