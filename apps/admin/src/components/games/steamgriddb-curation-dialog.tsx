@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -114,6 +114,31 @@ export function SteamGridDbCurationDialog({
 
   // Step 3 — save
   const [isSaving, startSaving] = useTransition();
+
+  // Mirror slotStates into a ref so the unmount/close cleanup effect can read
+  // the latest URLs without putting slotStates in its dep array (which would
+  // re-fire on every render).
+  const slotStatesRef = useRef(slotStates);
+  slotStatesRef.current = slotStates;
+
+  // Revoke any outstanding blob URLs when the dialog transitions to closed,
+  // so cancelled upload sessions don't leak preview blobs (up to 4 × 5 MB)
+  // until page reload.
+  useEffect(() => {
+    if (open) return;
+    for (const slot of ALL_SLOTS) {
+      const url = slotStatesRef.current[slot].manualPreviewUrl;
+      if (url) URL.revokeObjectURL(url);
+    }
+  }, [open]);
+
+  // Switching search modes shouldn't carry stale results or error messages
+  // from the previous mode into the new tab.
+  const handleModeChange = useCallback((next: SteamGridDbLookupMode) => {
+    setMode(next);
+    setResults([]);
+    setSearchError(null);
+  }, []);
 
   const resetAll = useCallback(() => {
     setStep("search");
@@ -333,7 +358,7 @@ export function SteamGridDbCurationDialog({
         {step === "search" && (
           <SearchStep
             mode={mode}
-            onModeChange={setMode}
+            onModeChange={handleModeChange}
             nameQuery={nameQuery}
             onNameQueryChange={setNameQuery}
             steamIdQuery={steamIdQuery}
@@ -699,9 +724,8 @@ function PickStep({
                 {picked && (
                   <div>
                     <p className="text-xs text-muted-foreground mb-2">
-                      {sgdbList.length} {SLOT_LABELS[slot].toLowerCase()}{" "}
-                      {sgdbList.length === 1 ? "available" : "available"} on
-                      SteamGridDB
+                      {sgdbList.length} {SLOT_LABELS[slot].toLowerCase()}
+                      {sgdbList.length === 1 ? "" : "s"} on SteamGridDB
                     </p>
                     {sgdbList.length === 0 ? (
                       <p className="text-sm text-muted-foreground italic">
