@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Sparkles,
   Image as ImageIcon,
+  Pencil,
   RotateCcw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,7 +41,10 @@ import { toast } from "sonner";
 import { RemapDialog } from "@/components/games/remap-dialog";
 import { DeleteDialog } from "@/components/games/delete-dialog";
 import { SteamGridDbCurationDialog } from "@/components/games/steamgriddb-curation-dialog";
+import { SlotEditDialog } from "@/components/games/slot-edit-dialog";
 import type { Game } from "@/lib/types";
+
+type AssetSlot = "grid" | "icon" | "hero" | "logo";
 
 function SyncButton({ gameId, igdbId }: { gameId: string; igdbId: number }) {
   const router = useRouter();
@@ -576,15 +580,16 @@ function EnrichmentSection({ game }: { game: Game }) {
   // Logos are transparent PNGs at varying aspect ratios — give them a wide
   // container and object-contain so they're never cropped. Other slots fill.
   const slots: Array<{
-    slot: string;
+    key: AssetSlot;
+    label: string;
     url: string | null;
     aspect: string;
     objectFit: string;
   }> = [
-    { slot: "Grid", url: game.steamgriddb_grid_url, aspect: "aspect-[3/4]", objectFit: "object-cover" },
-    { slot: "Icon", url: game.steamgriddb_icon_url, aspect: "aspect-square", objectFit: "object-cover" },
-    { slot: "Hero", url: game.steamgriddb_hero_url, aspect: "aspect-[3/1]", objectFit: "object-cover" },
-    { slot: "Logo", url: game.steamgriddb_logo_url, aspect: "aspect-[2/1]", objectFit: "object-contain" },
+    { key: "grid", label: "Grid", url: game.steamgriddb_grid_url, aspect: "aspect-[3/4]", objectFit: "object-cover" },
+    { key: "icon", label: "Icon", url: game.steamgriddb_icon_url, aspect: "aspect-square", objectFit: "object-cover" },
+    { key: "hero", label: "Hero", url: game.steamgriddb_hero_url, aspect: "aspect-[3/1]", objectFit: "object-cover" },
+    { key: "logo", label: "Logo", url: game.steamgriddb_logo_url, aspect: "aspect-[2/1]", objectFit: "object-contain" },
   ];
 
   const handleReset = () => {
@@ -671,24 +676,42 @@ function EnrichmentSection({ game }: { game: Game }) {
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {slots.map(({ slot, url, aspect, objectFit }) => (
-            <div key={slot} className="flex flex-col gap-1.5">
+          {slots.map(({ key, label, url, aspect, objectFit }) => (
+            <div key={key} className="flex flex-col gap-1.5">
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                {slot}
+                {label}
               </span>
               <div
-                className={`rounded-md bg-black/30 overflow-hidden flex items-center justify-center ${aspect}`}
+                className={`group relative rounded-md bg-black/30 overflow-hidden flex items-center justify-center ${aspect}`}
               >
                 {url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={url}
-                    alt={`${slot} asset`}
+                    alt={`${label} asset`}
                     className={`h-full w-full ${objectFit}`}
                   />
                 ) : (
                   <ImageIcon className="h-5 w-5 text-muted-foreground/40" />
                 )}
+                <SlotEditDialog
+                  gameId={game.id}
+                  gameName={game.name}
+                  steamAppId={game.steam_app_id}
+                  existingSteamGridDbId={game.steamgriddb_game_id}
+                  slot={key}
+                  currentUrl={url}
+                  trigger={
+                    <button
+                      type="button"
+                      aria-label={`Edit ${label}`}
+                      title={url ? `Edit ${label}` : `Add ${label}`}
+                      className="absolute top-1.5 right-1.5 h-6 w-6 rounded-md bg-black/70 backdrop-blur-sm border border-white/10 text-white/90 hover:text-amber-400 hover:border-amber-400/50 hover:bg-black/90 flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  }
+                />
               </div>
             </div>
           ))}

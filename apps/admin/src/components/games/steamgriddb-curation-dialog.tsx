@@ -180,6 +180,31 @@ export function SteamGridDbCurationDialog({
     setSearchError(null);
   }, []);
 
+  // Shared by handlePickGame (search → click result) and the auto-skip path
+  // in resetAll (re-enrich with a known SteamGridDB id, issue #178).
+  const loadAssetsForGame = useCallback(async (game: SteamGridDbGame) => {
+    setPicked(game);
+    setSlotStates(freshSlotState());
+    setSlotPages({ grid: 1, icon: 1, hero: 1, logo: 1 });
+    setIsLoadingAssets(true);
+    const res = await fetchSteamGridDbAssets(game.id);
+    setIsLoadingAssets(false);
+    if (!res.success) {
+      return { success: false as const, error: res.error };
+    }
+    const data = res.data ?? null;
+    setAssetSet(data);
+    if (data) {
+      setSlotHasMore({
+        grid: data.grids.length >= 50,
+        icon: data.icons.length >= 50,
+        hero: data.heroes.length >= 50,
+        logo: data.logos.length >= 50,
+      });
+    }
+    return { success: true as const };
+  }, []);
+
   const resetAll = useCallback(() => {
     setStep("search");
     setMode("name");
@@ -197,7 +222,31 @@ export function SteamGridDbCurationDialog({
     setSlotPages({ grid: 1, icon: 1, hero: 1, logo: 1 });
     setSlotHasMore({ grid: false, icon: false, hero: false, logo: false });
     setSlotLoadingMore({ grid: false, icon: false, hero: false, logo: false });
-  }, [gameName, steamAppId, existingSteamGridDbId]);
+
+    // Issue #178: when re-enriching a game whose SteamGridDB id we already
+    // know, jump straight to the pick step and load that game's assets in
+    // the background. The 90% case for re-enrich is "swap an asset on the
+    // same SGDB game"; forcing a re-search adds friction. Synthesize a
+    // minimal SteamGridDbGame from the stored id — we use the row's name as
+    // the display label rather than round-tripping SGDB to fetch the real
+    // SGDB-side name. Falls back to the search step on fetch failure.
+    if (existingSteamGridDbId !== null) {
+      const synthGame: SteamGridDbGame = {
+        id: existingSteamGridDbId,
+        name: gameName,
+        release_date: null,
+        types: [],
+      };
+      setStep("pick");
+      void loadAssetsForGame(synthGame).then((res) => {
+        if (!res.success) {
+          toast.error(res.error ?? "Failed to load previously enriched assets");
+          setStep("search");
+          setPicked(null);
+        }
+      });
+    }
+  }, [gameName, steamAppId, existingSteamGridDbId, loadAssetsForGame]);
 
   const currentValue = (): string => {
     if (mode === "name") return nameQuery;
@@ -224,27 +273,10 @@ export function SteamGridDbCurationDialog({
   }, [mode, nameQuery, steamIdQuery, sgdbIdQuery]);
 
   const handlePickGame = async (game: SteamGridDbGame) => {
-    setPicked(game);
-    setSlotStates(freshSlotState());
-    setSlotPages({ grid: 1, icon: 1, hero: 1, logo: 1 });
-    setIsLoadingAssets(true);
-    const res = await fetchSteamGridDbAssets(game.id);
-    setIsLoadingAssets(false);
+    const res = await loadAssetsForGame(game);
     if (!res.success) {
       toast.error(res.error ?? "Failed to load assets");
       return;
-    }
-    const data = res.data ?? null;
-    setAssetSet(data);
-    // Seed hasMore from initial response — page 1 returning a full 50
-    // suggests page 2 might exist.
-    if (data) {
-      setSlotHasMore({
-        grid: data.grids.length >= 50,
-        icon: data.icons.length >= 50,
-        hero: data.heroes.length >= 50,
-        logo: data.logos.length >= 50,
-      });
     }
     setStep("pick");
   };
@@ -781,7 +813,7 @@ function PickStep({
         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground self-start"
       >
         <ArrowLeft className="h-3 w-3" />
-        Back to search
+        Change SteamGridDB game
       </button>
 
       <Tabs
