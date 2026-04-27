@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { UrlPasteRow } from "@/components/games/url-paste-row";
 import { toast } from "sonner";
 import {
   fetchSlotAssetsPage,
@@ -49,22 +50,6 @@ interface SlotState {
   manualFile?: File;
   manualPreviewUrl?: string;
   manualUploadedUrl?: string;
-}
-
-// Issue #179: client-side URL validation for the "Paste asset URL" affordance.
-// Disable the Use button until the input parses as an https URL. Server-side
-// runs the same checks defensively (admin-only tool but still cheap to be
-// strict at both layers). Returns a parsed URL string on success.
-function validatePasteUrlClient(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    const u = new URL(trimmed);
-    if (u.protocol !== "https:") return null;
-    return u.toString();
-  } catch {
-    return null;
-  }
 }
 
 const ALL_SLOTS: AssetSlot[] = ["grid", "icon", "hero", "logo"];
@@ -366,15 +351,11 @@ export function SteamGridDbCurationDialog({
     });
   };
 
-  const handlePasteUrl = (slot: AssetSlot, raw: string) => {
-    const validated = validatePasteUrlClient(raw);
-    if (!validated) {
-      toast.error(`${SLOT_LABELS[slot]}: paste a valid https:// URL`);
-      return;
-    }
+  const handlePasteUrl = (slot: AssetSlot, validatedUrl: string) => {
+    // URL is already validated + image-probed by UrlPasteRow.
     const current = slotStates[slot];
     if (current.manualPreviewUrl) URL.revokeObjectURL(current.manualPreviewUrl);
-    updateSlot(slot, { source: "url", pastedUrl: validated });
+    updateSlot(slot, { source: "url", pastedUrl: validatedUrl });
   };
 
   const slotResolvedPreview = (slot: AssetSlot): string | null => {
@@ -821,7 +802,7 @@ interface PickStepProps {
   onActiveSlotChange: (s: AssetSlot) => void;
   onPickAsset: (slot: AssetSlot, asset: SteamGridDbAsset) => void;
   onManualFile: (slot: AssetSlot, file: File | null) => void;
-  onPasteUrl: (slot: AssetSlot, raw: string) => void;
+  onPasteUrl: (slot: AssetSlot, validatedUrl: string) => void;
   slotHasMore: Record<AssetSlot, boolean>;
   slotLoadingMore: Record<AssetSlot, boolean>;
   onLoadMore: (slot: AssetSlot) => void;
@@ -893,8 +874,8 @@ function PickStep({
 
                 <UrlPasteRow
                   slot={slot}
-                  state={s}
-                  onCommit={(raw) => onPasteUrl(slot, raw)}
+                  committedUrl={s.source === "url" ? (s.pastedUrl ?? null) : null}
+                  onCommit={(validatedUrl) => onPasteUrl(slot, validatedUrl)}
                 />
 
                 {picked && (
@@ -1059,151 +1040,3 @@ function ManualUploadZone({
   );
 }
 
-// ---------------------------------------------------------------------------
-// URL paste row (per slot, issue #179)
-// ---------------------------------------------------------------------------
-
-type ProbeState = "idle" | "syntax-invalid" | "probing" | "image" | "not-image";
-
-// Image probe: create an offscreen <img>, set src, listen for load/error.
-// Browser image loads bypass CORS for non-canvas use, so this works across
-// origins. A successful decode is the strongest signal we can get from the
-// client that the URL points to an image — covers extensionless CDN URLs,
-// signed URLs, and rejects HTML pages / 404s without needing server help.
-//
-// Implementation note: the only state is the probe result (URL + verdict).
-// "probing" is derived during render from "result hasn't caught up with the
-// current URL yet". Avoids setState-in-effect cascading-render warnings.
-function useImageProbe(raw: string): ProbeState {
-  const trimmed = raw.trim();
-  const validated = trimmed ? validatePasteUrlClient(trimmed) : null;
-
-  const [result, setResult] = useState<{ url: string; verdict: "image" | "not-image" } | null>(null);
-
-  useEffect(() => {
-    if (!validated) return;
-    // Debounce so rapid typing doesn't fan out a probe per keystroke. 300 ms
-    // feels snappy after a paste (the common case) without being noisy.
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      const img = new Image();
-      img.onload = () => {
-        if (cancelled) return;
-        setResult({ url: validated, verdict: "image" });
-      };
-      img.onerror = () => {
-        if (cancelled) return;
-        setResult({ url: validated, verdict: "not-image" });
-      };
-      img.src = validated;
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [validated]);
-
-  if (!trimmed) return "idle";
-  if (!validated) return "syntax-invalid";
-  if (result?.url === validated) return result.verdict;
-  return "probing";
-}
-
-function UrlPasteRow({
-  slot,
-  state,
-  onCommit,
-}: {
-  slot: AssetSlot;
-  state: SlotState;
-  onCommit: (raw: string) => void;
-}) {
-  // Local input state — only commits to the parent slotState when the user
-  // clicks Use (or hits Enter). Keeps slotStates churn-free during typing.
-  // Initial value: if this slot was previously committed via URL paste, show
-  // that URL so the input doesn't look empty even though a pick is active.
-  const [raw, setRaw] = useState<string>(
-    state.source === "url" ? (state.pastedUrl ?? "") : "",
-  );
-  const probeState = useImageProbe(raw);
-  const canUse = probeState === "image";
-  const validated = validatePasteUrlClient(raw);
-  const isCommitted =
-    state.source === "url" && validated !== null && state.pastedUrl === validated;
-
-  const handleCommit = () => {
-    if (!canUse) return;
-    onCommit(raw);
-  };
-
-  const statusText = (() => {
-    if (probeState === "idle") return "Or paste an image URL";
-    if (probeState === "syntax-invalid") return "Must be an https:// URL";
-    if (probeState === "probing") return "Checking the URL…";
-    if (probeState === "image") return "Looks like an image";
-    return "This doesn't look like an image";
-  })();
-
-  const statusTone =
-    probeState === "image"
-      ? "text-emerald-400"
-      : probeState === "not-image" || probeState === "syntax-invalid"
-        ? "text-destructive"
-        : "text-muted-foreground";
-
-  return (
-    <div>
-      <p className={`text-xs mb-2 ${statusTone}`}>{statusText}</p>
-      <div className="flex gap-2">
-        <Input
-          value={raw}
-          onChange={(e) => setRaw(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              handleCommit();
-            }
-          }}
-          placeholder="https://example.com/image.png"
-          inputMode="url"
-          className="text-sm"
-          aria-label={`Paste ${SLOT_LABELS[slot]} URL`}
-        />
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleCommit}
-          disabled={!canUse || isCommitted}
-        >
-          {isCommitted ? (
-            <>
-              <Check className="h-3.5 w-3.5 mr-1" />
-              Used
-            </>
-          ) : probeState === "probing" ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-              Checking
-            </>
-          ) : (
-            "Use"
-          )}
-        </Button>
-      </div>
-      {/* Inline preview at slot aspect ratio once the probe confirms it's an
-          image. Lets the admin verify the visual *before* clicking Use. */}
-      {canUse && validated && (
-        <div
-          className={`mt-3 rounded-md bg-black/30 overflow-hidden max-w-[280px] ${SLOT_ASPECT[slot]}`}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={validated}
-            alt={`${SLOT_LABELS[slot]} URL preview`}
-            className={`h-full w-full ${SLOT_OBJECT_FIT[slot]}`}
-          />
-        </div>
-      )}
-    </div>
-  );
-}

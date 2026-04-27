@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { UrlPasteRow } from "@/components/games/url-paste-row";
 import { toast } from "sonner";
 import {
   fetchSlotAssetsPage,
@@ -87,20 +88,6 @@ interface PickedAsset {
   pastedUrl?: string;
   manualFile?: File;
   manualPreviewUrl?: string;
-}
-
-// Issue #179: client-side URL validation matching the bulk dialog. Disable
-// the Use button until the input parses as an https URL.
-function validatePasteUrlClient(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    const u = new URL(trimmed);
-    if (u.protocol !== "https:") return null;
-    return u.toString();
-  } catch {
-    return null;
-  }
 }
 
 export function SlotEditDialog({
@@ -302,14 +289,10 @@ export function SlotEditDialog({
     });
   };
 
-  const handlePasteUrl = (raw: string) => {
-    const validated = validatePasteUrlClient(raw);
-    if (!validated) {
-      toast.error("Paste a valid https:// URL");
-      return;
-    }
+  const handlePasteUrl = (validatedUrl: string) => {
+    // URL is already validated + image-probed by UrlPasteRow.
     if (pick.manualPreviewUrl) URL.revokeObjectURL(pick.manualPreviewUrl);
-    setPick({ source: "url", pastedUrl: validated });
+    setPick({ source: "url", pastedUrl: validatedUrl });
   };
 
   const submit = (pickSource: PickSource, successMessage: string) => {
@@ -701,7 +684,7 @@ interface PickPaneProps {
   loadingMore: boolean;
   onPickAsset: (asset: SteamGridDbAsset) => void;
   onManualFile: (file: File | null) => void;
-  onPasteUrl: (raw: string) => void;
+  onPasteUrl: (validatedUrl: string) => void;
   onLoadMore: () => void;
   onBack: () => void;
 }
@@ -734,7 +717,11 @@ function PickPane({
         <div className="flex flex-col gap-3">
           <ManualUploadZone state={pick} onChange={onManualFile} />
 
-          <UrlPasteRow slot={slot} state={pick} onCommit={onPasteUrl} />
+          <UrlPasteRow
+            slot={slot}
+            committedUrl={pick.source === "url" ? (pick.pastedUrl ?? null) : null}
+            onCommit={onPasteUrl}
+          />
 
           {picked && (
             <>
@@ -877,138 +864,3 @@ function ManualUploadZone({
   );
 }
 
-// ---------------------------------------------------------------------------
-// URL paste row (issue #179)
-// ---------------------------------------------------------------------------
-
-type ProbeState = "idle" | "syntax-invalid" | "probing" | "image" | "not-image";
-
-// Image probe — see steamgriddb-curation-dialog.tsx for the rationale. Same
-// logic here, just keyed off PickedAsset rather than SlotState.
-function useImageProbe(raw: string): ProbeState {
-  const trimmed = raw.trim();
-  const validated = trimmed ? validatePasteUrlClient(trimmed) : null;
-
-  const [result, setResult] = useState<{ url: string; verdict: "image" | "not-image" } | null>(null);
-
-  useEffect(() => {
-    if (!validated) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      const img = new Image();
-      img.onload = () => {
-        if (cancelled) return;
-        setResult({ url: validated, verdict: "image" });
-      };
-      img.onerror = () => {
-        if (cancelled) return;
-        setResult({ url: validated, verdict: "not-image" });
-      };
-      img.src = validated;
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [validated]);
-
-  if (!trimmed) return "idle";
-  if (!validated) return "syntax-invalid";
-  if (result?.url === validated) return result.verdict;
-  return "probing";
-}
-
-function UrlPasteRow({
-  slot,
-  state,
-  onCommit,
-}: {
-  slot: AssetSlot;
-  state: PickedAsset;
-  onCommit: (raw: string) => void;
-}) {
-  const [raw, setRaw] = useState<string>(
-    state.source === "url" ? (state.pastedUrl ?? "") : "",
-  );
-  const probeState = useImageProbe(raw);
-  const canUse = probeState === "image";
-  const validated = validatePasteUrlClient(raw);
-  const isCommitted =
-    state.source === "url" && validated !== null && state.pastedUrl === validated;
-
-  const handleCommit = () => {
-    if (!canUse) return;
-    onCommit(raw);
-  };
-
-  const statusText = (() => {
-    if (probeState === "idle") return "Or paste an image URL";
-    if (probeState === "syntax-invalid") return "Must be an https:// URL";
-    if (probeState === "probing") return "Checking the URL…";
-    if (probeState === "image") return "Looks like an image";
-    return "This doesn't look like an image";
-  })();
-
-  const statusTone =
-    probeState === "image"
-      ? "text-emerald-400"
-      : probeState === "not-image" || probeState === "syntax-invalid"
-        ? "text-destructive"
-        : "text-muted-foreground";
-
-  return (
-    <div>
-      <p className={`text-xs mb-2 ${statusTone}`}>{statusText}</p>
-      <div className="flex gap-2">
-        <Input
-          value={raw}
-          onChange={(e) => setRaw(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              handleCommit();
-            }
-          }}
-          placeholder="https://example.com/image.png"
-          inputMode="url"
-          className="text-sm"
-          aria-label="Paste image URL"
-        />
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleCommit}
-          disabled={!canUse || isCommitted}
-        >
-          {isCommitted ? (
-            <>
-              <Check className="h-3.5 w-3.5 mr-1" />
-              Used
-            </>
-          ) : probeState === "probing" ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-              Checking
-            </>
-          ) : (
-            "Use"
-          )}
-        </Button>
-      </div>
-      {/* Inline preview at slot aspect ratio once the probe confirms it's an
-          image. Lets the admin verify the visual *before* clicking Use. */}
-      {canUse && validated && (
-        <div
-          className={`mt-3 rounded-md bg-black/30 overflow-hidden max-w-[280px] ${SLOT_ASPECT[slot]}`}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={validated}
-            alt={`${SLOT_LABELS[slot]} URL preview`}
-            className={`h-full w-full ${SLOT_OBJECT_FIT[slot]}`}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
