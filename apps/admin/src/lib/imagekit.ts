@@ -19,7 +19,7 @@ function getClient(): ImageKit {
   return client;
 }
 
-export type AssetSlot = 'icon' | 'logo' | 'hero' | 'grid';
+export type AssetSlot = 'grid' | 'icon' | 'hero' | 'logo';
 
 export function gameAssetFolder(gameId: string): string {
   return `/games/${gameId}`;
@@ -59,5 +59,35 @@ export async function deleteGameFolder(gameId: string): Promise<void> {
     await getClient().deleteFolder(gameAssetFolder(gameId));
   } catch (err) {
     console.warn(`[imagekit] deleteFolder /games/${gameId} failed:`, err);
+  }
+}
+
+// Best-effort deletion of specific slot files within a game's folder. Used by
+// re-enrichment to clean up files for slots being dropped (slot had a URL
+// before, will be null after this save). One listFiles + one bulkDeleteFiles
+// call regardless of how many slots are being dropped.
+export async function deleteSlotFiles(
+  gameId: string,
+  slots: AssetSlot[],
+): Promise<void> {
+  if (slots.length === 0) return;
+  try {
+    const folder = gameAssetFolder(gameId);
+    const wantedNames = new Set(slots.map(gameAssetFileName));
+    const files = (await getClient().listFiles({
+      path: folder,
+      limit: 100,
+    })) as Array<{ name: string; fileId: string }>;
+    const fileIds = files
+      .filter((f) => wantedNames.has(f.name))
+      .map((f) => f.fileId);
+    if (fileIds.length > 0) {
+      await getClient().bulkDeleteFiles(fileIds);
+    }
+  } catch (err) {
+    console.warn(
+      `[imagekit] deleteSlotFiles /games/${gameId} (${slots.join(',')}) failed:`,
+      err,
+    );
   }
 }
