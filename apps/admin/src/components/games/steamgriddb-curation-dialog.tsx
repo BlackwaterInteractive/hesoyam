@@ -26,6 +26,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
+  fetchSlotAssetsPage,
   fetchSteamGridDbAssets,
   getUploadAuth,
   lookupSteamGridDb,
@@ -80,7 +81,18 @@ const SLOT_OBJECT_FIT: Record<AssetSlot, string> = {
 };
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
-const ACCEPTED_MIME = ["image/png", "image/jpeg", "image/webp"];
+const ACCEPTED_MIME = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
+// File extension that ImageKit should store / serve under, derived from MIME.
+// Critical for animated formats — uploading a GIF as `.jpg` strips animation.
+function mimeToExt(mime: string): string {
+  const m = mime.toLowerCase();
+  if (m === "image/gif") return "gif";
+  if (m === "image/webp") return "webp";
+  if (m === "image/png") return "png";
+  if (m === "image/jpeg" || m === "image/jpg") return "jpg";
+  return "jpg";
+}
 
 function freshSlotState(): Record<AssetSlot, SlotState> {
   return {
@@ -127,6 +139,18 @@ export function SteamGridDbCurationDialog({
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [slotStates, setSlotStates] = useState(freshSlotState);
   const [activeSlot, setActiveSlot] = useState<AssetSlot>("grid");
+  // Pagination state (per slot). slotPages[slot] = highest page already loaded.
+  // slotHasMore[slot] = derived from last response — false hides the "Load more"
+  // button. slotLoadingMore[slot] = loading spinner on the button.
+  const [slotPages, setSlotPages] = useState<Record<AssetSlot, number>>({
+    grid: 1, icon: 1, hero: 1, logo: 1,
+  });
+  const [slotHasMore, setSlotHasMore] = useState<Record<AssetSlot, boolean>>({
+    grid: false, icon: false, hero: false, logo: false,
+  });
+  const [slotLoadingMore, setSlotLoadingMore] = useState<Record<AssetSlot, boolean>>({
+    grid: false, icon: false, hero: false, logo: false,
+  });
 
   // Step 3 — save
   const [isSaving, startSaving] = useTransition();
@@ -170,6 +194,9 @@ export function SteamGridDbCurationDialog({
     setAssetSet(null);
     setSlotStates(freshSlotState());
     setActiveSlot("grid");
+    setSlotPages({ grid: 1, icon: 1, hero: 1, logo: 1 });
+    setSlotHasMore({ grid: false, icon: false, hero: false, logo: false });
+    setSlotLoadingMore({ grid: false, icon: false, hero: false, logo: false });
   }, [gameName, steamAppId, existingSteamGridDbId]);
 
   const currentValue = (): string => {
@@ -199,6 +226,7 @@ export function SteamGridDbCurationDialog({
   const handlePickGame = async (game: SteamGridDbGame) => {
     setPicked(game);
     setSlotStates(freshSlotState());
+    setSlotPages({ grid: 1, icon: 1, hero: 1, logo: 1 });
     setIsLoadingAssets(true);
     const res = await fetchSteamGridDbAssets(game.id);
     setIsLoadingAssets(false);
@@ -206,8 +234,44 @@ export function SteamGridDbCurationDialog({
       toast.error(res.error ?? "Failed to load assets");
       return;
     }
-    setAssetSet(res.data ?? null);
+    const data = res.data ?? null;
+    setAssetSet(data);
+    // Seed hasMore from initial response — page 1 returning a full 50
+    // suggests page 2 might exist.
+    if (data) {
+      setSlotHasMore({
+        grid: data.grids.length >= 50,
+        icon: data.icons.length >= 50,
+        hero: data.heroes.length >= 50,
+        logo: data.logos.length >= 50,
+      });
+    }
     setStep("pick");
+  };
+
+  // Append the next page of one slot's results to the displayed list.
+  const handleLoadMore = async (slot: AssetSlot) => {
+    if (!picked || slotLoadingMore[slot]) return;
+    const nextPage = slotPages[slot] + 1;
+    setSlotLoadingMore((p) => ({ ...p, [slot]: true }));
+    const res = await fetchSlotAssetsPage({
+      steamGridDbGameId: picked.id,
+      slot,
+      page: nextPage,
+    });
+    setSlotLoadingMore((p) => ({ ...p, [slot]: false }));
+    if (!res.success) {
+      toast.error(res.error ?? "Failed to load more assets");
+      return;
+    }
+    const newItems = res.data ?? [];
+    setAssetSet((prev) => {
+      if (!prev) return prev;
+      const setKey = SLOT_TO_SET_KEY[slot];
+      return { ...prev, [setKey]: [...prev[setKey], ...newItems] };
+    });
+    setSlotPages((p) => ({ ...p, [slot]: nextPage }));
+    setSlotHasMore((p) => ({ ...p, [slot]: !!res.hasMore }));
   };
 
   const handleSkipToManual = () => {
@@ -239,7 +303,7 @@ export function SteamGridDbCurationDialog({
       return;
     }
     if (!ACCEPTED_MIME.includes(file.type)) {
-      toast.error(`${SLOT_LABELS[slot]}: only PNG, JPG, or WebP allowed`);
+      toast.error(`${SLOT_LABELS[slot]}: only PNG, JPG, WebP, or GIF allowed`);
       return;
     }
     if (file.size > MAX_UPLOAD_BYTES) {
@@ -255,7 +319,9 @@ export function SteamGridDbCurationDialog({
 
   const slotResolvedPreview = (slot: AssetSlot): string | null => {
     const s = slotStates[slot];
-    if (s.source === "steamgriddb") return s.sgdbAsset?.thumb ?? s.sgdbAsset?.url ?? null;
+    // Use the full asset URL (not thumb) for SteamGridDB picks so animated
+    // GIF / WebP assets actually animate in the preview.
+    if (s.source === "steamgriddb") return s.sgdbAsset?.url ?? s.sgdbAsset?.thumb ?? null;
     if (s.source === "manual") return s.manualPreviewUrl ?? null;
     return null;
   };
@@ -285,9 +351,13 @@ export function SteamGridDbCurationDialog({
             }
             const auth = authRes.data;
             const file = slotStates[slot].manualFile!;
+            // Use the file's actual extension so ImageKit stores/serves with
+            // the correct format. Hardcoding `.jpg` would strip animation
+            // from GIFs/animated WebPs.
+            const ext = mimeToExt(file.type);
             const formData = new FormData();
             formData.append("file", file);
-            formData.append("fileName", `${slot}.jpg`);
+            formData.append("fileName", `${slot}.${ext}`);
             formData.append("folder", `/games/${gameId}`);
             formData.append("useUniqueFileName", "false");
             formData.append("overwriteFile", "true");
@@ -354,7 +424,7 @@ export function SteamGridDbCurationDialog({
       }}
     >
       <DialogTrigger render={trigger as React.ReactElement} />
-      <DialogContent className="sm:max-w-[760px] max-h-[88vh] flex flex-col">
+      <DialogContent className="sm:max-w-[960px] max-h-[88vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-lg flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-amber-400" />
@@ -400,6 +470,9 @@ export function SteamGridDbCurationDialog({
             onActiveSlotChange={setActiveSlot}
             onPickAsset={handlePickAsset}
             onManualFile={handleManualFile}
+            slotHasMore={slotHasMore}
+            slotLoadingMore={slotLoadingMore}
+            onLoadMore={handleLoadMore}
             onBack={() => setStep("search")}
             onContinue={() => {
               if (!hasAnyPick) {
@@ -680,6 +753,9 @@ interface PickStepProps {
   onActiveSlotChange: (s: AssetSlot) => void;
   onPickAsset: (slot: AssetSlot, asset: SteamGridDbAsset) => void;
   onManualFile: (slot: AssetSlot, file: File | null) => void;
+  slotHasMore: Record<AssetSlot, boolean>;
+  slotLoadingMore: Record<AssetSlot, boolean>;
+  onLoadMore: (slot: AssetSlot) => void;
   onBack: () => void;
   onContinue: () => void;
 }
@@ -692,6 +768,9 @@ function PickStep({
   onActiveSlotChange,
   onPickAsset,
   onManualFile,
+  slotHasMore,
+  slotLoadingMore,
+  onLoadMore,
   onBack,
   onContinue,
 }: PickStepProps) {
@@ -735,60 +814,89 @@ function PickStep({
               className="flex-1 overflow-y-auto min-h-0 -mx-1 px-1"
             >
               <div className="flex flex-col gap-3">
-                {picked && (
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      {sgdbList.length} {SLOT_LABELS[slot].toLowerCase()}
-                      {sgdbList.length === 1 ? "" : "s"} on SteamGridDB
-                    </p>
-                    {sgdbList.length === 0 ? (
-                      <p className="text-sm text-muted-foreground italic">
-                        No SteamGridDB results — use upload below.
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        {sgdbList.slice(0, 12).map((asset) => {
-                          const isSelected =
-                            s.source === "steamgriddb" &&
-                            s.sgdbAsset?.id === asset.id;
-                          return (
-                            <button
-                              key={asset.id}
-                              onClick={() => onPickAsset(slot, asset)}
-                              className={`group relative rounded-md overflow-hidden bg-black/30 transition-all ${SLOT_ASPECT[slot]} ${
-                                isSelected
-                                  ? "ring-2 ring-amber-400"
-                                  : "ring-1 ring-border/30 hover:ring-amber-400/50"
-                              }`}
-                            >
-                              <img
-                                src={asset.thumb || asset.url}
-                                alt={`Option by ${asset.author?.name ?? "unknown"}`}
-                                className={`h-full w-full ${SLOT_OBJECT_FIT[slot]}`}
-                              />
-                              {isSelected && (
-                                <span className="absolute top-1 right-1 h-5 w-5 rounded-full bg-amber-400 flex items-center justify-center">
-                                  <Check className="h-3 w-3 text-black" />
-                                </span>
-                              )}
-                              <span className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-white p-1 truncate">
-                                {asset.author?.name ?? "?"} · ↑{asset.upvotes}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <Separator className="bg-border/50" />
-
                 <ManualUploadZone
                   slot={slot}
                   state={s}
                   onChange={(file) => onManualFile(slot, file)}
                 />
+
+                {picked && (
+                  <>
+                    <Separator className="bg-border/50" />
+                    <div>
+                      {sgdbList.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">
+                          No SteamGridDB results — use upload above.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-3 gap-2">
+                            {sgdbList.map((asset) => {
+                              const isSelected =
+                                s.source === "steamgriddb" &&
+                                s.sgdbAsset?.id === asset.id;
+                              return (
+                                <button
+                                  key={asset.id}
+                                  onClick={() => onPickAsset(slot, asset)}
+                                  className={`group relative rounded-md overflow-hidden bg-black/30 transition-all ${SLOT_ASPECT[slot]} ${
+                                    isSelected
+                                      ? "ring-2 ring-amber-400"
+                                      : "ring-1 ring-border/30 hover:ring-amber-400/50"
+                                  }`}
+                                >
+                                  <img
+                                    src={
+                                      // GIFs and (potentially-animated) WebPs need
+                                      // the full URL to actually animate. Other
+                                      // formats use the smaller thumb for faster
+                                      // picker load.
+                                      asset.mime === "image/gif" ||
+                                      asset.mime === "image/webp"
+                                        ? asset.url
+                                        : asset.thumb || asset.url
+                                    }
+                                    alt={`Option by ${asset.author?.name ?? "unknown"}`}
+                                    loading="lazy"
+                                    className={`h-full w-full ${SLOT_OBJECT_FIT[slot]}`}
+                                  />
+                                  {isSelected && (
+                                    <span className="absolute top-1 right-1 h-5 w-5 rounded-full bg-amber-400 flex items-center justify-center">
+                                      <Check className="h-3 w-3 text-black" />
+                                    </span>
+                                  )}
+                                  <span className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-white p-1 truncate">
+                                    {asset.author?.name ?? "?"} · ↑{asset.upvotes}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {slotHasMore[slot] && (
+                            <div className="flex justify-center mt-3">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => onLoadMore(slot)}
+                                disabled={slotLoadingMore[slot]}
+                                className="text-xs text-muted-foreground hover:text-amber-400"
+                              >
+                                {slotLoadingMore[slot] ? (
+                                  <>
+                                    <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                                    Loading…
+                                  </>
+                                ) : (
+                                  "Load more"
+                                )}
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </TabsContent>
           );
@@ -856,13 +964,13 @@ function ManualUploadZone({
           className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/50 bg-muted/20 p-4 text-sm text-muted-foreground hover:border-amber-400/50 hover:bg-amber-400/5 hover:text-foreground cursor-pointer transition-colors"
         >
           <Upload className="h-4 w-4" />
-          Drop a PNG/JPG/WebP here or click to choose (max 5 MB)
+          Drop a PNG/JPG/WebP/GIF here or click to choose (max 5 MB)
         </label>
       )}
       <input
         id={inputId}
         type="file"
-        accept="image/png,image/jpeg,image/webp"
+        accept="image/png,image/jpeg,image/webp,image/gif"
         className="hidden"
         onChange={(e) => onChange(e.target.files?.[0] ?? null)}
       />
