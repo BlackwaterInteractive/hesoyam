@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   type AssetSlot,
   deleteGameFolder,
+  deleteSlotFiles,
   gameAssetFolder,
   getClientUploadAuth,
   uploadFromUrl,
@@ -87,13 +88,13 @@ const assetCache = new Map<
 const SGDB_BASE = "https://www.steamgriddb.com/api/v2";
 
 const SLOT_COLUMN: Record<AssetSlot, string> = {
-  icon: "steamgriddb_icon_url",
-  logo: "steamgriddb_logo_url",
-  hero: "steamgriddb_hero_url",
   grid: "steamgriddb_grid_url",
+  icon: "steamgriddb_icon_url",
+  hero: "steamgriddb_hero_url",
+  logo: "steamgriddb_logo_url",
 };
 
-const ALL_SLOTS: AssetSlot[] = ["icon", "logo", "hero", "grid"];
+const ALL_SLOTS: AssetSlot[] = ["grid", "icon", "hero", "logo"];
 
 function steamGridDbHeaders(): HeadersInit {
   const key = process.env.STEAMGRIDDB_API_KEY;
@@ -303,24 +304,41 @@ export async function saveCuration(
   const withCacheBuster = (url: string): string =>
     url.includes("?") ? `${url}&v=${cacheBust}` : `${url}?v=${cacheBust}`;
 
+  // Snapshot existing slot URLs so we can compute which slots are being
+  // dropped (orphan cleanup, issue #169). Done in parallel with the uploads
+  // since neither depends on the other.
+  const admin = createAdminClient();
+  const existingRowPromise = admin
+    .from("games")
+    .select(
+      "steamgriddb_icon_url, steamgriddb_logo_url, steamgriddb_hero_url, steamgriddb_grid_url",
+    )
+    .eq("id", gameId)
+    .maybeSingle();
+
   const slotUrls: Partial<Record<AssetSlot, string>> = {};
+  let existingRow: Record<string, string | null> | null = null;
   try {
-    await Promise.all(
-      ALL_SLOTS.map(async (slot) => {
-        const pick = picks[slot];
-        if (!pick || pick.type === "skip") return;
-        if (pick.type === "steamgriddb") {
-          const { url } = await uploadFromUrl({
-            gameId,
-            slot,
-            sourceUrl: pick.sourceUrl,
-          });
-          slotUrls[slot] = withCacheBuster(url);
-        } else {
-          slotUrls[slot] = withCacheBuster(pick.imageKitUrl);
-        }
-      }),
-    );
+    const [existingResult] = await Promise.all([
+      existingRowPromise,
+      Promise.all(
+        ALL_SLOTS.map(async (slot) => {
+          const pick = picks[slot];
+          if (!pick || pick.type === "skip") return;
+          if (pick.type === "steamgriddb") {
+            const { url } = await uploadFromUrl({
+              gameId,
+              slot,
+              sourceUrl: pick.sourceUrl,
+            });
+            slotUrls[slot] = withCacheBuster(url);
+          } else {
+            slotUrls[slot] = withCacheBuster(pick.imageKitUrl);
+          }
+        }),
+      ),
+    ]);
+    existingRow = (existingResult.data as Record<string, string | null> | null) ?? null;
   } catch (err) {
     return {
       success: false,
@@ -328,7 +346,18 @@ export async function saveCuration(
     };
   }
 
-  const admin = createAdminClient();
+  // Slots that previously held a URL but won't after this save → delete the
+  // orphan files in ImageKit. Best-effort; deletion failure doesn't block
+  // the DB write (DB is the source of truth, orphans are recoverable).
+  const orphanSlots = ALL_SLOTS.filter((slot) => {
+    const oldUrl = existingRow?.[SLOT_COLUMN[slot]];
+    const newUrl = slotUrls[slot];
+    return oldUrl != null && newUrl == null;
+  });
+  if (orphanSlots.length > 0) {
+    await deleteSlotFiles(gameId, orphanSlots);
+  }
+
   const updatePayload: Record<string, unknown> = {
     steamgriddb_game_id: steamGridDbGameId,
     assets_enriched: true,

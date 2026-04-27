@@ -39,7 +39,7 @@ import {
 } from "@/app/(admin)/games/steamgriddb-actions";
 
 type Step = "search" | "pick" | "preview";
-type AssetSlot = "icon" | "logo" | "hero" | "grid";
+type AssetSlot = "grid" | "icon" | "hero" | "logo";
 
 interface SlotState {
   source: "steamgriddb" | "manual" | "skip";
@@ -49,18 +49,34 @@ interface SlotState {
   manualUploadedUrl?: string;
 }
 
-const ALL_SLOTS: AssetSlot[] = ["icon", "logo", "hero", "grid"];
+const ALL_SLOTS: AssetSlot[] = ["grid", "icon", "hero", "logo"];
 const SLOT_LABELS: Record<AssetSlot, string> = {
-  icon: "Icon",
-  logo: "Logo",
-  hero: "Hero",
   grid: "Grid",
+  icon: "Icon",
+  hero: "Hero",
+  logo: "Logo",
 };
 const SLOT_TO_SET_KEY: Record<AssetSlot, keyof SteamGridDbAssetSet> = {
-  icon: "icons",
-  logo: "logos",
-  hero: "heroes",
   grid: "grids",
+  icon: "icons",
+  hero: "heroes",
+  logo: "logos",
+};
+
+// Logo is the odd one out: SteamGridDB logos are transparent PNGs at varying
+// aspect ratios, so they get a wide-ish container and object-contain (no crop).
+// Other slots fill their container.
+const SLOT_ASPECT: Record<AssetSlot, string> = {
+  grid: "aspect-[3/4]",
+  icon: "aspect-square",
+  hero: "aspect-[3/1]",
+  logo: "aspect-[2/1]",
+};
+const SLOT_OBJECT_FIT: Record<AssetSlot, string> = {
+  grid: "object-cover",
+  icon: "object-cover",
+  hero: "object-cover",
+  logo: "object-contain",
 };
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -68,10 +84,10 @@ const ACCEPTED_MIME = ["image/png", "image/jpeg", "image/webp"];
 
 function freshSlotState(): Record<AssetSlot, SlotState> {
   return {
-    icon: { source: "skip" },
-    logo: { source: "skip" },
-    hero: { source: "skip" },
     grid: { source: "skip" },
+    icon: { source: "skip" },
+    hero: { source: "skip" },
+    logo: { source: "skip" },
   };
 }
 
@@ -110,7 +126,7 @@ export function SteamGridDbCurationDialog({
   const [assetSet, setAssetSet] = useState<SteamGridDbAssetSet | null>(null);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [slotStates, setSlotStates] = useState(freshSlotState);
-  const [activeSlot, setActiveSlot] = useState<AssetSlot>("icon");
+  const [activeSlot, setActiveSlot] = useState<AssetSlot>("grid");
 
   // Step 3 — save
   const [isSaving, startSaving] = useTransition();
@@ -153,7 +169,7 @@ export function SteamGridDbCurationDialog({
     setPicked(null);
     setAssetSet(null);
     setSlotStates(freshSlotState());
-    setActiveSlot("icon");
+    setActiveSlot("grid");
   }, [gameName, steamAppId, existingSteamGridDbId]);
 
   const currentValue = (): string => {
@@ -425,15 +441,13 @@ export function SteamGridDbCurationDialog({
                       </span>
                     </div>
                     <div
-                      className={`rounded-md bg-black/30 overflow-hidden flex items-center justify-center ${
-                        slot === "hero" ? "aspect-[3/1]" : slot === "icon" ? "aspect-square" : "aspect-[3/4]"
-                      }`}
+                      className={`rounded-md bg-black/30 overflow-hidden flex items-center justify-center ${SLOT_ASPECT[slot]}`}
                     >
                       {previewSrc ? (
                         <img
                           src={previewSrc}
                           alt={`${slot} preview`}
-                          className="h-full w-full object-cover"
+                          className={`h-full w-full ${SLOT_OBJECT_FIT[slot]}`}
                         />
                       ) : (
                         <ImageIcon className="h-6 w-6 text-muted-foreground/40" />
@@ -741,13 +755,7 @@ function PickStep({
                             <button
                               key={asset.id}
                               onClick={() => onPickAsset(slot, asset)}
-                              className={`group relative rounded-md overflow-hidden bg-black/30 transition-all ${
-                                slot === "hero"
-                                  ? "aspect-[3/1]"
-                                  : slot === "icon"
-                                    ? "aspect-square"
-                                    : "aspect-[3/4]"
-                              } ${
+                              className={`group relative rounded-md overflow-hidden bg-black/30 transition-all ${SLOT_ASPECT[slot]} ${
                                 isSelected
                                   ? "ring-2 ring-amber-400"
                                   : "ring-1 ring-border/30 hover:ring-amber-400/50"
@@ -756,7 +764,7 @@ function PickStep({
                               <img
                                 src={asset.thumb || asset.url}
                                 alt={`Option by ${asset.author?.name ?? "unknown"}`}
-                                className="h-full w-full object-cover"
+                                className={`h-full w-full ${SLOT_OBJECT_FIT[slot]}`}
                               />
                               {isSelected && (
                                 <span className="absolute top-1 right-1 h-5 w-5 rounded-full bg-amber-400 flex items-center justify-center">
