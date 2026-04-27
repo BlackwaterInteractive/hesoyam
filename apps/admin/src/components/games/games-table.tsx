@@ -6,6 +6,7 @@ import {
   Search,
   Gamepad2,
   AlertCircle,
+  HelpCircle,
   ShieldCheck,
   Sparkles,
   Image as ImageIcon,
@@ -28,6 +29,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Pagination,
   PaginationContent,
@@ -227,7 +233,59 @@ export function GamesTable({
               <TableHead className="text-right">Sessions</TableHead>
               <TableHead className="text-right">Players</TableHead>
               <TableHead>App ID</TableHead>
-              <TableHead>Assets</TableHead>
+              <TableHead>
+                <div className="flex items-center gap-1">
+                  Assets
+                  <Tooltip>
+                    <TooltipTrigger
+                      type="button"
+                      className="text-muted-foreground/60 hover:text-foreground transition-colors cursor-help"
+                      aria-label="What do these badges mean?"
+                    >
+                      <HelpCircle className="h-3 w-3" />
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="bottom"
+                      className="max-w-sm whitespace-normal py-2.5 text-left"
+                    >
+                      <div className="flex flex-col gap-2">
+                        <p className="text-[11px] font-medium opacity-80">
+                          Asset state for the row&rsquo;s tile
+                        </p>
+                        <ul className="flex flex-col gap-1.5">
+                          <li className="flex items-start gap-2">
+                            <Sparkles className="h-3 w-3 shrink-0 mt-0.5 text-amber-400" />
+                            <span>
+                              <span className="font-semibold">Enriched</span> &mdash; curated assets via SteamGridDB.
+                            </span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <ImageIcon className="h-3 w-3 shrink-0 mt-0.5" />
+                            <span>
+                              <span className="font-semibold">IGDB</span> &mdash; using IGDB&rsquo;s stock cover, not curated yet.
+                            </span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <Square className="h-3 w-3 shrink-0 mt-0.5" />
+                            <span>
+                              <span className="font-semibold">Placeholder</span> &mdash; no cover, falls back to a generic tile.
+                            </span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <AlertCircle className="h-3 w-3 shrink-0 mt-0.5 text-destructive" />
+                            <span>
+                              <span className="font-semibold">No Metadata</span> &mdash; no genres, so the placeholder tile won&rsquo;t be themed. Stacks on top of the others.
+                            </span>
+                          </li>
+                        </ul>
+                        <p className="text-[11px] opacity-70">
+                          The first three are mutually exclusive.
+                        </p>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -359,7 +417,6 @@ export function GamesTable({
                           <Badge
                             variant="destructive"
                             className="text-[11px]"
-                            title="No genres on this row — fallback placeholder won't have a themed tile"
                           >
                             <AlertCircle className="h-3 w-3 mr-0.5" />
                             No Metadata
