@@ -8,12 +8,6 @@ import {
   DiscordAppService,
 } from '../discord/discord-app.service';
 
-// Discord application type 1 is "bot". We treat bot lookups as "no useful
-// Discord data" — fall through to the existing IGDB cascade rather than
-// trying to import a bot as a game. (Discord game apps are type 5, but the
-// resolver doesn't depend on that — it only checks for the IGDB SKU.)
-const DISCORD_APP_TYPE_BOT = 1;
-
 @Injectable()
 export class GameResolverService {
   // In-flight deduplication: when many concurrent callers try to resolve the
@@ -47,7 +41,7 @@ export class GameResolverService {
         { gameName, hitBy: applicationId ? 'applicationId' : 'name' },
         'Game resolved from cache',
       );
-      if (applicationId) await this.linkApplicationId(cacheHit, applicationId);
+      if (applicationId) await this.federateAndCache(cacheHit, applicationId);
       return cacheHit;
     }
 
@@ -65,9 +59,9 @@ export class GameResolverService {
         'Resolve coalesced to in-flight request',
       );
       const resolved = await existing;
-      // If the in-flight request started WITHOUT our applicationId, link
+      // If the in-flight request started WITHOUT our applicationId, federate
       // ours now that the canonical row is known.
-      if (applicationId) await this.linkApplicationId(resolved, applicationId);
+      if (applicationId) await this.federateAndCache(resolved, applicationId);
       return resolved;
     }
 
@@ -132,23 +126,63 @@ export class GameResolverService {
     // distributor=igdb), which lets us skip fuzzy IGDB name search entirely
     // when Discord knows the game. Eliminates #153-class mismatches for
     // any game Discord has cataloged.
+    //
+    // We do NOT filter by `type` here — Discord's type taxonomy (5 game,
+    // null bot, etc) is brittle and only diagnostic. Federation handles
+    // bot/launcher-style siblings via `linked_games` reverse lookup;
+    // unmatched orphans are cleaned up by the admin Consolidate tool.
     let discordData: DiscordAppData | null = null;
     let searchName = gameName;
     let searchNormalizedName = normalizedName;
     if (applicationId) {
       discordData = await this.discordApp.fetchAppData(applicationId);
 
-      // Bots fall through to the existing cascade — same as no Discord data.
-      // Their `name` and SKUs aren't game metadata, so we ignore the lookup.
-      if (discordData && discordData.type === DISCORD_APP_TYPE_BOT) {
-        this.logger.debug(
-          { gameName, applicationId, type: discordData.type },
-          'Discord app is a bot — falling through',
-        );
-        discordData = null;
-      }
-
       if (discordData) {
+        // Tier 0b: Reverse lookup via linked_games. Discord may report this
+        // app id is linked to other already-known app ids (companion bots,
+        // launchers, regional variants). If any sibling is already mapped
+        // to an existing game, that's the canonical row — federate the new
+        // id onto it instead of creating a duplicate. Makes ingestion order-
+        // independent (concept: Commutative Ingestion).
+        if (discordData.linked_app_ids.length > 0) {
+          const reverseHits = await this.games.findByApplicationIds([
+            applicationId,
+            ...discordData.linked_app_ids,
+          ]);
+          if (reverseHits.length > 0) {
+            const canonical = reverseHits[0].game;
+            const distinctGameIds = new Set(
+              reverseHits.map((h) => h.game.id),
+            );
+            if (distinctGameIds.size > 1) {
+              this.logger.warn(
+                {
+                  gameName,
+                  applicationId,
+                  candidateGameIds: Array.from(distinctGameIds),
+                  pickedGameId: canonical.id,
+                },
+                'Reverse lookup ambiguous — multiple existing games claim app ids in linked_games. Picked first; admin Consolidate can resolve.',
+              );
+            }
+            await this.federateAndCache(canonical, applicationId, discordData);
+            this.logger.info(
+              {
+                gameName,
+                applicationId,
+                gameId: canonical.id,
+                matchedAppIds: reverseHits.map((h) => h.application_id),
+              },
+              'Game resolved via Discord linked_games reverse lookup',
+            );
+            return this.cacheAndReturn(
+              normalizedName,
+              canonical,
+              applicationId,
+            );
+          }
+        }
+
         if (discordData.igdb_id != null) {
           // Authoritative path: Discord told us the game's IGDB id directly.
           // Import by exact id — no name-based search, no chance of mismatch.
@@ -156,9 +190,7 @@ export class GameResolverService {
             const imported = await this.igdb.importById(discordData.igdb_id);
             if (imported) {
               await this.games.applyDiscordData(imported.id, discordData);
-              if (applicationId) {
-                await this.linkApplicationId(imported, applicationId);
-              }
+              await this.federateAndCache(imported, applicationId, discordData);
               this.logger.info(
                 {
                   gameName,
@@ -203,7 +235,9 @@ export class GameResolverService {
         { gameName, gameId: exact.id },
         'Game resolved via exact DB match',
       );
-      if (applicationId) await this.linkApplicationId(exact, applicationId);
+      if (applicationId) {
+        await this.federateAndCache(exact, applicationId, discordData);
+      }
       await this.persistDiscordOrPresence(exact.id, discordData, gameName);
       return this.cacheAndReturn(normalizedName, exact, applicationId);
     }
@@ -215,7 +249,9 @@ export class GameResolverService {
         { gameName, gameId: fuzzy.id },
         'Game resolved via fuzzy DB match',
       );
-      if (applicationId) await this.linkApplicationId(fuzzy, applicationId);
+      if (applicationId) {
+        await this.federateAndCache(fuzzy, applicationId, discordData);
+      }
       await this.persistDiscordOrPresence(fuzzy.id, discordData, gameName);
       return this.cacheAndReturn(normalizedName, fuzzy, applicationId);
     }
@@ -228,7 +264,9 @@ export class GameResolverService {
           { gameName, gameId: igdbResult.id },
           'Game resolved via IGDB',
         );
-        if (applicationId) await this.linkApplicationId(igdbResult, applicationId);
+        if (applicationId) {
+          await this.federateAndCache(igdbResult, applicationId, discordData);
+        }
         await this.persistDiscordOrPresence(igdbResult.id, discordData, gameName);
         return this.cacheAndReturn(normalizedName, igdbResult, applicationId);
       }
@@ -245,7 +283,9 @@ export class GameResolverService {
       { gameName, gameId: fallback.id },
       'Game resolved via minimal fallback',
     );
-    if (applicationId) await this.linkApplicationId(fallback, applicationId);
+    if (applicationId) {
+      await this.federateAndCache(fallback, applicationId, discordData);
+    }
     await this.persistDiscordOrPresence(fallback.id, discordData, gameName);
     return this.cacheAndReturn(normalizedName, fallback, applicationId);
   }
@@ -269,15 +309,38 @@ export class GameResolverService {
   }
 
   /**
-   * Save discord applicationId on the resolved game and cache under the appid key.
+   * Federate the resolved game's Discord application IDs into the junction
+   * table (`game_discord_applications`) and pre-warm the resolver cache for
+   * each. `discordData` is optional — supplied on post-RPC paths so that
+   * RPC's `linked_games` siblings (launcher, regional variants) get mapped
+   * to the same canonical row before they're ever seen as a presence event.
+   * Pre-RPC paths (cache hit, coalesced waiter) only have `applicationId`
+   * and link just the primary.
+   *
+   * Race-safety: `linkDiscordApplications` writes via `ON CONFLICT
+   * (application_id) DO NOTHING`, so concurrent writers can't produce
+   * duplicate junction rows. If two callers race to claim the same id for
+   * different games, the loser silently no-ops; the next forward lookup
+   * via cache or DB returns the winner's canonical row.
    */
-  private async linkApplicationId(
+  private async federateAndCache(
     game: ResolvedGame,
     applicationId: string,
+    discordData?: DiscordAppData | null,
   ): Promise<void> {
-    if (game.id) {
-      await this.games.setApplicationId(game.id, applicationId);
-      this.cache.set('game-resolve', `appid:${applicationId}`, game);
+    if (!game.id) return;
+    const linkedAppIds = discordData?.linked_app_ids ?? [];
+    await this.games.linkDiscordApplications(
+      game.id,
+      applicationId,
+      linkedAppIds,
+    );
+    // Pre-warm the resolver cache for every id we just federated. Subsequent
+    // presence events for any of these ids resolve in microseconds without
+    // touching DB or RPC.
+    this.cache.set('game-resolve', `appid:${applicationId}`, game);
+    for (const appId of linkedAppIds) {
+      this.cache.set('game-resolve', `appid:${appId}`, game);
     }
   }
 

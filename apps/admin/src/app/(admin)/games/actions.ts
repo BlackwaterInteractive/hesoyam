@@ -18,7 +18,6 @@ export async function updateGame(
     const publisher = formData.get("publisher") as string | null;
     const genresRaw = formData.get("genres") as string | null;
     const cover_url = formData.get("cover_url") as string | null;
-    const discord_application_id = formData.get("discord_application_id") as string | null;
     const ignored = formData.get("ignored") === "true";
 
     // Parse genres from comma-separated string to array
@@ -37,7 +36,6 @@ export async function updateGame(
         publisher: publisher || null,
         genres,
         cover_url: cover_url || null,
-        discord_application_id: discord_application_id || null,
         ignored,
       })
       .eq("id", gameId);

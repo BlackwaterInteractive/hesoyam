@@ -137,7 +137,11 @@ class SessionTracker {
       // Cancel any pending end — but check if it's the same game or a different one
       if (this.cancelPendingEnd(discordId)) {
         const active = this.activeSessions.get(discordId);
-        if (active && active.gameName === newGame.name) {
+        // Flicker-recovery match: compare against the raw Discord activity
+        // name (what Discord *just said* before the brief gap). Comparing
+        // against the canonical gameName would false-negative when the same
+        // game flaps between launcher/companion/regional Discord IDs (#194).
+        if (active && active.discordActivityName === newGame.name) {
           // Same game reappeared — flicker recovery
           logger.info('[SESSION] FLICKER RECOVERY: Same game reappeared, cancelled pending close', {
             discordId,
@@ -192,18 +196,27 @@ class SessionTracker {
       });
       this.scheduleGameEnd(userId, discordId);
     }
-    // Case 3: Game switched (different game)
+    // Case 3: Apparent game switch by name. Defer the close/open decision
+    // to the backend — it resolves both names to canonical game ids and
+    // figures out whether they're the same game (Discord flap between a
+    // game's launcher / companion bot / regional variants) or genuinely
+    // different. If same canonical → backend's startSession returns the
+    // existing session idempotently and our local state stays continuous.
+    // If different canonical → backend closes the active session and
+    // creates a new one. Either way we just call handleGameStart with the
+    // new presence; the backend is the single source of truth for the
+    // switch decision.
+    //
+    // Issue #194 — federate Discord application ids to a single game.
     else if (oldGame && newGame && oldGame.name !== newGame.name) {
-      logger.info('[SESSION] Case 3: GAME_SWITCH — closing old, starting new', {
+      logger.info('[SESSION] Case 3: name change — deferring switch decision to backend', {
         discordId,
         oldGame: oldGame.name,
         newGame: newGame.name,
         localSessionId: localSession?.id ?? null,
         timestamp: new Date().toISOString(),
       });
-      // Switching games — immediately close old, start new
       this.cancelPendingEnd(discordId);
-      await this.handleGameEnd(userId, discordId);
       await this.handleGameStart(userId, discordId, newGame);
     }
     // Case 4: Same game continues (heartbeat)
@@ -324,12 +337,25 @@ class SessionTracker {
 
     const { session, resolvedGame } = result;
 
-    // Track locally with resolved game data
+    // Track locally with resolved game data. Use the canonical
+    // `resolvedGame.name` rather than the raw Discord presence string —
+    // a single game federates many Discord application IDs (#194), and
+    // heartbeat broadcasts (line ~80) read this gameName, so storing the
+    // raw string would flip the displayed name on every Discord activity
+    // change between launcher / companion / regional variants of the
+    // same game. The raw string is still logged via the [PRESENCE]
+    // events for diagnostics.
     this.activeSessions.set(discordId, {
       id: session.id,
       userId,
       discordId,
-      gameName: game.name,
+      gameName: resolvedGame.name,
+      // Raw Discord activity name — for stale-session verify and
+      // flicker-recovery comparisons against Discord's current presence.
+      // Updated every time handleGameStart runs (i.e. every Case 1 GAME_START
+      // and every Case 3 deferred name change), so it always reflects the
+      // most recent Discord activity, not the canonical one.
+      discordActivityName: game.name,
       gameId: resolvedGame.id,
       gameSlug: resolvedGame.slug,
       coverUrl: resolvedGame.cover_url,
@@ -566,12 +592,18 @@ class SessionTracker {
           }
         }
 
-        // User is still playing the same game — adopt the session
+        // User is still playing the same game — adopt the session.
+        // On adoption we don't have access to the canonical game name
+        // separately, so we stamp both fields with `session.game_name`
+        // (the raw Discord name from the original creation). The next
+        // /sessions/start (Case 1 GAME_START or Case 3 name change) will
+        // overwrite both with their proper canonical / raw values.
         this.activeSessions.set(discordId, {
           id: session.id,
           userId: session.user_id,
           discordId,
           gameName: session.game_name,
+          discordActivityName: session.game_name,
           gameId: session.game_id,
           gameSlug,
           coverUrl,
@@ -620,10 +652,17 @@ class SessionTracker {
       const playingActivity = presence?.activities.find(a => a.type === 0);
       const currentGameName = playingActivity?.name ?? null;
 
-      if (!currentGameName || currentGameName !== session.gameName) {
+      // Compare against the raw Discord activity name. `session.gameName`
+      // is the canonical name (could differ from Discord's current
+      // activity for the same game — e.g. "Delta Force" canonical vs
+      // "Delta Force Game" companion-bot activity). Verifying on canonical
+      // would false-positive every time Discord switches between the
+      // game's launcher / companion / regional Discord IDs (#194).
+      if (!currentGameName || currentGameName !== session.discordActivityName) {
         logger.warn('[VERIFY] Stale session detected — user no longer playing', {
           discordId,
           trackedGame: session.gameName,
+          trackedDiscordName: session.discordActivityName,
           currentGame: currentGameName,
           sessionId: session.id,
           sessionAge: Math.floor((Date.now() - session.startedAt.getTime()) / 1000),

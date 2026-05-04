@@ -232,7 +232,6 @@ export function GamesTable({
               <TableHead>IGDB ID</TableHead>
               <TableHead className="text-right">Sessions</TableHead>
               <TableHead className="text-right">Players</TableHead>
-              <TableHead>App ID</TableHead>
               <TableHead>
                 <div className="flex items-center gap-1">
                   Assets
@@ -376,15 +375,6 @@ export function GamesTable({
                       <span className="text-sm tabular-nums text-muted-foreground">
                         {game.player_count.toLocaleString()}
                       </span>
-                    </TableCell>
-                    <TableCell>
-                      {game.discord_application_id ? (
-                        <code className="text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded font-mono">
-                          {game.discord_application_id}
-                        </code>
-                      ) : (
-                        <span className="text-muted-foreground/40">&mdash;</span>
-                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 flex-wrap">
