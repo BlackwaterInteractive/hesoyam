@@ -291,6 +291,35 @@ export class GameResolverService {
   }
 
   /**
+   * Clear the entire resolver cache after an admin Consolidate action.
+   *
+   * Why nuke the whole bucket instead of deleting only the moved app ids:
+   * the cache holds two key shapes per resolution — `appid:X` AND a
+   * normalized-name key (`name:<normalized>`). After consolidate, BOTH
+   * shapes might point at the now-deleted orphan game id (e.g. the
+   * orphan's name "Delta Force Game" got cached as `name:delta force game
+   * → orphan_id` during a presence event before consolidate). Deleting
+   * only the `appid:` keys leaves the name-keyed entry behind and the
+   * resolver still hands out the deleted id on the next name-only lookup.
+   *
+   * The bucket is bounded (`max: 2000`) and repopulates on demand via
+   * the existing in-flight coalescing — no thundering-herd risk. The
+   * cost is a brief miss-spike on next resolves, invisible at our scale.
+   *
+   * `applicationIds` is taken for audit logging only; the entire bucket
+   * is cleared regardless of which ids prompted the invalidation. Issue
+   * #194 PR 2.
+   */
+  invalidateApplicationIds(applicationIds: string[]): number {
+    this.cache.clear('game-resolve');
+    this.logger.info(
+      { applicationIds, count: applicationIds.length },
+      'Resolver cache cleared after admin Consolidate',
+    );
+    return applicationIds.length;
+  }
+
+  /**
    * Persist Discord-side metadata onto the resolved row. Prefers full RPC
    * data when available; otherwise falls back to capturing the original
    * presence string as `discord_name` so admins can see "Discord said X →
