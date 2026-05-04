@@ -605,3 +605,211 @@ export async function deleteGame(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Consolidate Games (issue #194 PR 2)
+// ---------------------------------------------------------------------------
+// Folds an orphan `games` row (e.g. the Delta Force companion bot's
+// auto-created row) into the canonical row representing the same real
+// game. Distinct from Remap-merge (Mode 3): canonical's identity is
+// preserved entirely; orphan's data is folded in (overlapping sessions
+// deleted as duplicates, distinct ones repointed, junction rows moved,
+// orphan deleted).
+//
+// Three-phase: candidates (auto-suggest) → plan (preview) → apply.
+// After apply, a best-effort hit to the backend's cache-invalidate
+// endpoint drops the resolver LRU so the next presence event for any
+// moved application id re-resolves to the canonical row instead of
+// the now-deleted orphan id.
+
+export interface ConsolidationCandidate {
+  orphan_id: string;
+  orphan_name: string;
+  canonical_id: string | null;
+  canonical_name: string | null;
+  reason: "time_overlap" | "orphan_shape";
+  signal_strength: number;
+}
+
+export async function getConsolidationCandidates(): Promise<{
+  candidates: ConsolidationCandidate[];
+  error?: string;
+}> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("admin_consolidation_candidates");
+
+  if (error) {
+    return { candidates: [], error: `Candidates RPC failed: ${error.message}` };
+  }
+
+  return { candidates: (data as ConsolidationCandidate[] | null) ?? [] };
+}
+
+export type ConsolidationBlockReason = "orphan_ignored" | "canonical_ignored";
+
+export interface ConsolidationPlan {
+  orphan: RemapGameRow;
+  canonical: RemapGameRow;
+  sessions_overlapping: number;
+  sessions_distinct: number;
+  library_overlapping: number;
+  library_distinct: number;
+  application_ids: string[];
+  block_reasons: ConsolidationBlockReason[];
+}
+
+export interface ConsolidationPlanResponse {
+  plan?: ConsolidationPlan;
+  error?: string;
+}
+
+export async function getConsolidationPlan(
+  orphanId: string,
+  canonicalId: string,
+): Promise<ConsolidationPlanResponse> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("admin_consolidate_games_plan", {
+    p_orphan_id: orphanId,
+    p_canonical_id: canonicalId,
+  });
+
+  if (error) {
+    return { error: `Plan RPC failed: ${error.message}` };
+  }
+
+  const planJson = data as Record<string, unknown> | null;
+  if (!planJson) {
+    return { error: "Plan RPC returned null" };
+  }
+  if (typeof planJson.error === "string") {
+    return { error: planJson.error };
+  }
+
+  return { plan: planJson as unknown as ConsolidationPlan };
+}
+
+export interface ConsolidationApplyResponse {
+  success: boolean;
+  orphanId?: string;
+  canonicalId?: string;
+  sessionsDeleted?: number;
+  sessionsRepointed?: number;
+  libraryDeleted?: number;
+  libraryRepointed?: number;
+  movedApplicationIds?: string[];
+  cacheInvalidated?: boolean;
+  error?: string;
+  blockReasons?: ConsolidationBlockReason[];
+}
+
+export async function consolidateGames(
+  orphanId: string,
+  canonicalId: string,
+): Promise<ConsolidationApplyResponse> {
+  const supabase = await createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("admin_consolidate_games", {
+    p_orphan_id: orphanId,
+    p_canonical_id: canonicalId,
+    p_actor_id: session.user.id,
+  });
+
+  if (error) {
+    return { success: false, error: `Consolidate RPC failed: ${error.message}` };
+  }
+
+  const result = data as Record<string, unknown> | null;
+  if (!result) {
+    return { success: false, error: "Consolidate RPC returned null" };
+  }
+
+  if (result.error === "consolidate_blocked") {
+    return {
+      success: false,
+      error: "consolidate_blocked",
+      blockReasons:
+        (result.block_reasons as ConsolidationBlockReason[]) ?? [],
+    };
+  }
+  if (typeof result.error === "string") {
+    return { success: false, error: result.error };
+  }
+
+  const movedApplicationIds =
+    (result.moved_application_ids as string[] | null) ?? [];
+
+  // Best-effort cache invalidation. The DB merge is the source of truth;
+  // a cache-invalidate failure is recoverable (1h TTL or backend restart),
+  // so we don't fail the whole action if the backend is unreachable.
+  let cacheInvalidated = false;
+  const backendUrl = process.env.BACKEND_API_URL;
+  if (backendUrl && movedApplicationIds.length > 0) {
+    try {
+      const res = await fetch(
+        `${backendUrl}/games/cache/invalidate-application-ids`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ applicationIds: movedApplicationIds }),
+        },
+      );
+      cacheInvalidated = res.ok;
+    } catch {
+      cacheInvalidated = false;
+    }
+  } else {
+    cacheInvalidated = movedApplicationIds.length === 0;
+  }
+
+  // Best-effort cleanup of orphan's enriched ImageKit assets (if any).
+  // Mirrors the admin_remap / admin_delete pattern.
+  await deleteGameFolder(orphanId);
+
+  revalidatePath("/games");
+  revalidatePath(`/games/${canonicalId}`);
+
+  return {
+    success: true,
+    orphanId: result.orphan_id as string,
+    canonicalId: result.canonical_id as string,
+    sessionsDeleted: (result.sessions_deleted as number) ?? 0,
+    sessionsRepointed: (result.sessions_repointed as number) ?? 0,
+    libraryDeleted: (result.library_deleted as number) ?? 0,
+    libraryRepointed: (result.library_repointed as number) ?? 0,
+    movedApplicationIds,
+    cacheInvalidated,
+  };
+}
+
+export async function searchGamesForConsolidation(
+  query: string,
+  limit = 15,
+): Promise<{
+  results: { id: string; name: string; igdb_id: number | null; cover_url: string | null; metadata_source: string | null }[];
+  error?: string;
+}> {
+  if (!query.trim()) return { results: [] };
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("games")
+    .select("id, name, igdb_id, cover_url, metadata_source")
+    .ilike("name", `%${query.trim()}%`)
+    .order("name")
+    .limit(limit);
+
+  if (error) {
+    return { results: [], error: `Game search failed: ${error.message}` };
+  }
+  return { results: data ?? [] };
+}

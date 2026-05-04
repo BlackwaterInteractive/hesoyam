@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { GamesTable } from "@/components/games/games-table";
+import { ConsolidateDialog } from "@/components/games/consolidate-dialog";
 
 const PAGE_SIZE = 25;
 
@@ -144,11 +145,14 @@ export default async function GamesPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Games</h1>
-        <p className="text-muted-foreground mt-1">
-          Browse, edit, and manage game metadata
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Games</h1>
+          <p className="text-muted-foreground mt-1">
+            Browse, edit, and manage game metadata
+          </p>
+        </div>
+        <ConsolidateDialog />
       </div>
 
       <GamesTable

@@ -559,4 +559,40 @@ describe('GameResolverService', () => {
     // Discord-side fields still applied to the eventually-resolved row.
     expect(games.applyDiscordData).toHaveBeenCalled();
   });
+
+  // ── Cache invalidation (admin Consolidate hook, #194 PR 2) ──────────────
+
+  it('invalidateApplicationIds drops cached entries so subsequent resolves re-hit DB', async () => {
+    const orphanGame = makeResolved({ id: 'orphan-game' });
+    const canonicalGame = makeResolved({ id: 'canonical-game' });
+
+    // Warm the cache via a normal resolve: applicationId fast path returns
+    // the orphan (simulating the pre-consolidate state).
+    games.findByApplicationId.mockResolvedValueOnce(orphanGame);
+    const first = await service.resolve('Delta Force Game', 'orphan-app');
+    expect(first.id).toBe('orphan-game');
+    expect(games.findByApplicationId).toHaveBeenCalledTimes(1);
+
+    // Same call hits the cache — no new DB lookup.
+    await service.resolve('Delta Force Game', 'orphan-app');
+    expect(games.findByApplicationId).toHaveBeenCalledTimes(1);
+
+    // Admin consolidates: invalidate the cache for the moved app id.
+    const count = service.invalidateApplicationIds(['orphan-app']);
+    expect(count).toBe(1);
+
+    // Next resolve must touch DB again. Now the junction returns canonical.
+    games.findByApplicationId.mockResolvedValueOnce(canonicalGame);
+    const second = await service.resolve('Delta Force Game', 'orphan-app');
+    expect(second.id).toBe('canonical-game');
+    expect(games.findByApplicationId).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidateApplicationIds is a no-op for ids that were never cached', async () => {
+    const count = service.invalidateApplicationIds(['never-cached-1', 'never-cached-2']);
+    // Returns the number of delete calls made, not the number of entries actually present.
+    expect(count).toBe(2);
+    // No DB calls.
+    expect(games.findByApplicationId).not.toHaveBeenCalled();
+  });
 });

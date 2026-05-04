@@ -306,6 +306,32 @@ export type Database = {
         Args: Record<string, never>
         Returns: Json
       }
+      admin_consolidate_games_plan: {
+        Args: {
+          p_orphan_id: string
+          p_canonical_id: string
+        }
+        Returns: Json
+      }
+      admin_consolidate_games: {
+        Args: {
+          p_orphan_id: string
+          p_canonical_id: string
+          p_actor_id: string
+        }
+        Returns: Json
+      }
+      admin_consolidation_candidates: {
+        Args: Record<string, never>
+        Returns: {
+          orphan_id: string
+          orphan_name: string
+          canonical_id: string | null
+          canonical_name: string | null
+          reason: string
+          signal_strength: number
+        }[]
+      }
       admin_remap_plan: {
         Args: {
           p_source_id: string
