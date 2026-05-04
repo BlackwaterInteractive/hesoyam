@@ -75,7 +75,7 @@ export default async function DashboardPage() {
       description: null, publisher: null, platforms: null, screenshots: null,
       artwork_url: null, igdb_url: null, rating: null, rating_count: null,
       first_release_date: null, igdb_updated_at: null, metadata_source: null,
-      discord_application_id: null, created_at: raw.created_at,
+      created_at: raw.created_at,
     } : null)
     if (!gameObj) return null
     const { games: _g, ...session } = raw

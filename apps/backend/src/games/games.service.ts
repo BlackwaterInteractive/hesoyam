@@ -18,28 +18,113 @@ export class GamesService {
     @InjectPinoLogger(GamesService.name) private logger: PinoLogger,
   ) {}
 
+  /**
+   * Forward lookup: which game (if any) owns this Discord application id?
+   * Single round-trip via the federation table; PK on application_id makes
+   * this an index seek.
+   */
   async findByApplicationId(applicationId: string): Promise<ResolvedGame | null> {
-    const { data } = await this.supabase
+    const { data, error } = await this.supabase
       .getClient()
-      .from('games')
-      .select('id, name, slug, cover_url, igdb_id')
-      .eq('discord_application_id', applicationId)
-      .limit(1)
-      .single();
-
-    return data ?? null;
-  }
-
-  async setApplicationId(gameId: string, applicationId: string): Promise<void> {
-    const { error } = await this.supabase
-      .getClient()
-      .from('games')
-      .update({ discord_application_id: applicationId })
-      .eq('id', gameId)
-      .is('discord_application_id', null);
+      .from('game_discord_applications')
+      .select('game:games(id, name, slug, cover_url, igdb_id)')
+      .eq('application_id', applicationId)
+      .maybeSingle();
 
     if (error) {
-      this.logger.warn({ error, gameId, applicationId }, 'Failed to set applicationId (likely unique conflict)');
+      this.logger.warn(
+        { error, applicationId },
+        'findByApplicationId failed',
+      );
+      return null;
+    }
+    // Supabase nests the joined row under the alias `game`. The generated
+    // type widens many-to-one joins as arrays; the actual runtime payload
+    // is a single object for this query shape (one junction row → one
+    // game). Cast through unknown to bridge the gap.
+    const game =
+      (data as unknown as { game: ResolvedGame | null } | null)?.game ??
+      null;
+    return game;
+  }
+
+  /**
+   * Reverse lookup: given a set of Discord application ids, return the
+   * canonical game(s) any of them already point to. Used by the resolver
+   * to detect "RPC says this new app id is linked to X, Y, Z — does any
+   * existing game already own X/Y/Z?" Single round-trip; ANY($1) is
+   * indexed via the PK.
+   *
+   * Returns the application_id → game mapping for every hit (so callers can
+   * tell which inputs matched and seed the rest).
+   */
+  async findByApplicationIds(
+    applicationIds: string[],
+  ): Promise<{ application_id: string; game: ResolvedGame }[]> {
+    if (applicationIds.length === 0) return [];
+    const { data, error } = await this.supabase
+      .getClient()
+      .from('game_discord_applications')
+      .select('application_id, game:games(id, name, slug, cover_url, igdb_id)')
+      .in('application_id', applicationIds);
+
+    if (error) {
+      this.logger.warn(
+        { error, applicationIds },
+        'findByApplicationIds failed',
+      );
+      return [];
+    }
+    // Same many-to-one widening caveat as findByApplicationId: cast
+    // through unknown so the runtime shape (one game object per junction
+    // row) lines up with the generated type's array widening.
+    return (
+      (data as unknown as
+        | {
+            application_id: string;
+            game: ResolvedGame | null;
+          }[]
+        | null) ?? []
+    ).filter((r): r is { application_id: string; game: ResolvedGame } =>
+      r.game !== null,
+    );
+  }
+
+  /**
+   * Federate a primary Discord application id (and any RPC-linked siblings)
+   * onto a game. Idempotent and race-safe via `ON CONFLICT (application_id)
+   * DO NOTHING` — concurrent writers attempting to claim the same id will
+   * see one winner; losers are silently no-op'd. Caller is responsible for
+   * re-resolving if it needs the actual canonical game post-conflict.
+   *
+   * Concept: Optimistic Concurrency via ON CONFLICT (concepts.md).
+   */
+  async linkDiscordApplications(
+    gameId: string,
+    primaryApplicationId: string,
+    linkedApplicationIds: string[] = [],
+  ): Promise<void> {
+    const all = Array.from(
+      new Set([primaryApplicationId, ...linkedApplicationIds]),
+    );
+    const rows = all.map((application_id) => ({
+      application_id,
+      game_id: gameId,
+    }));
+
+    const { error } = await this.supabase
+      .getClient()
+      .from('game_discord_applications')
+      .upsert(rows, {
+        onConflict: 'application_id',
+        ignoreDuplicates: true,
+      });
+
+    if (error) {
+      this.logger.warn(
+        { error, gameId, applicationIds: all },
+        'linkDiscordApplications failed',
+      );
     }
   }
 

@@ -85,7 +85,6 @@ export type Database = {
           igdb_updated_at: string | null
           metadata_source: string | null
           ignored: boolean
-          discord_application_id: string | null
           created_at: string
           admin_remapped_at: string | null
           admin_remapped_by: string | null
@@ -126,7 +125,6 @@ export type Database = {
           igdb_updated_at?: string | null
           metadata_source?: string | null
           ignored?: boolean
-          discord_application_id?: string | null
           created_at?: string
           admin_remapped_at?: string | null
           admin_remapped_by?: string | null
@@ -167,7 +165,6 @@ export type Database = {
           igdb_updated_at?: string | null
           metadata_source?: string | null
           ignored?: boolean
-          discord_application_id?: string | null
           created_at?: string
           admin_remapped_at?: string | null
           admin_remapped_by?: string | null

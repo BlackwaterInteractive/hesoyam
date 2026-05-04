@@ -143,9 +143,6 @@ export function GameDetail({
   const [publisher, setPublisher] = useState(game.publisher ?? "");
   const [genres, setGenres] = useState((game.genres ?? []).join(", "));
   const [coverUrl, setCoverUrl] = useState(game.cover_url ?? "");
-  const [discordAppId, setDiscordAppId] = useState(
-    game.discord_application_id ?? ""
-  );
   const [ignored, setIgnored] = useState(game.ignored);
 
   async function handleSave() {
@@ -155,7 +152,6 @@ export function GameDetail({
     formData.set("publisher", publisher);
     formData.set("genres", genres);
     formData.set("cover_url", coverUrl);
-    formData.set("discord_application_id", discordAppId);
     formData.set("ignored", String(ignored));
 
     startTransition(async () => {
@@ -237,7 +233,6 @@ export function GameDetail({
                   currentName={game.name}
                   currentCoverUrl={game.cover_url}
                   currentIgdbId={game.igdb_id}
-                  discordApplicationId={game.discord_application_id}
                 />
                 <DeleteDialog gameId={game.id} gameName={game.name} />
               </div>
@@ -363,15 +358,6 @@ export function GameDetail({
                 value={coverUrl}
                 onChange={(e) => setCoverUrl(e.target.value)}
                 placeholder="https://..."
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="discord_app_id">Discord Application ID</Label>
-              <Input
-                id="discord_app_id"
-                value={discordAppId}
-                onChange={(e) => setDiscordAppId(e.target.value)}
-                placeholder="123456789012345678"
               />
             </div>
           </div>
