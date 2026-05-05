@@ -97,10 +97,12 @@ describe('IgdbService.findBySteamSku', () => {
     expect(result?.igdb_id).toBe(1877);
     expect(result?.name).toBe('Cyberpunk 2077');
 
-    // Verify the external_games request used the Steam category + correct uid.
+    // Verify the external_games request used the Steam source filter + correct uid.
+    // IGDB's `category` field was deprecated; `external_game_source` is the
+    // current filter and 1 = Steam.
     const externalArgs = httpPost.mock.calls[0];
     expect(externalArgs[0]).toMatch(/external_games$/);
-    expect(externalArgs[1]).toContain('category = 1');
+    expect(externalArgs[1]).toContain('external_game_source = 1');
     expect(externalArgs[1]).toContain('uid = "1091500"');
   });
 

@@ -13,9 +13,11 @@ const IGDB_BASE_URL = 'https://api.igdb.com/v4';
 const SEARCH_CACHE = 'igdb-search';
 const EXTERNAL_GAMES_CACHE = 'igdb-external-games';
 
-// IGDB external_games category enum — only the value we use here.
-// See https://api-docs.igdb.com/#external-game-enums.
-const EXTERNAL_GAME_CATEGORY_STEAM = 1;
+// IGDB external_games filter — the API uses `external_game_source` (the
+// older `category` field is deprecated and silently no-ops in `where`
+// clauses, returning empty results for every query). 1 = Steam.
+// See https://api-docs.igdb.com/#external-game-source-enums.
+const EXTERNAL_GAME_SOURCE_STEAM = 1;
 
 interface IgdbExternalGameRow {
   game: number; // canonical IGDB game id
@@ -296,7 +298,7 @@ export class IgdbService {
       const response = await firstValueFrom(
         this.http.post<IgdbExternalGameRow[]>(
           `${IGDB_BASE_URL}/external_games`,
-          `where category = ${EXTERNAL_GAME_CATEGORY_STEAM} & uid = "${steamSku}"; fields game; limit 1;`,
+          `where external_game_source = ${EXTERNAL_GAME_SOURCE_STEAM} & uid = "${steamSku}"; fields game; limit 1;`,
           {
             headers: {
               'Client-ID': clientId,
