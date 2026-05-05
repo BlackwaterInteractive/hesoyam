@@ -126,22 +126,27 @@ describe('verifyActiveSessions', () => {
       return map[discordId];
     });
 
-    // Default: createSession returns a CreateSessionResult
-    mockCreateSession.mockImplementation((_userId: string, game: { name: string }) => ({
-      session: {
-        id: `session-${Date.now()}`,
-        user_id: _userId,
-        game_name: game.name,
-        started_at: new Date().toISOString(),
-        source: 'discord',
-      },
-      resolvedGame: {
-        id: `game-${Date.now()}`,
-        name: game.name,
-        slug: game.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        cover_url: null,
-      },
-    }));
+    // Default: createSession returns a CreateSessionResult.
+    // Real signature is (userId, discordId, game) — earlier mock omitted
+    // discordId, which made `game` bind to the discordId string at call
+    // time and crashed every test. Fixed.
+    mockCreateSession.mockImplementation(
+      (_userId: string, _discordId: string, game: { name: string }) => ({
+        session: {
+          id: `session-${Date.now()}`,
+          user_id: _userId,
+          game_name: game.name,
+          started_at: new Date().toISOString(),
+          source: 'discord',
+        },
+        resolvedGame: {
+          id: `game-${Date.now()}`,
+          name: game.name,
+          slug: game.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          cover_url: null,
+        },
+      }),
+    );
   });
 
   afterEach(() => {
@@ -233,7 +238,7 @@ describe('verifyActiveSessions', () => {
 
     // Session should now be closed
     expect(tracker.activeCount).toBe(0);
-    expect(mockCloseSession).toHaveBeenCalledWith('user-1');
+    expect(mockCloseSession).toHaveBeenCalledWith('user-1', 'discord-1');
 
     // Should log grace period expired
     const graceLogs = mockLogger.warn.mock.calls.filter(
@@ -531,7 +536,7 @@ describe('verifyActiveSessions', () => {
 
     // Grace expired — session closed
     expect(tracker.activeCount).toBe(0);
-    expect(mockCloseSession).toHaveBeenCalledWith('user-1');
+    expect(mockCloseSession).toHaveBeenCalledWith('user-1', 'discord-1');
 
     // Verify the grace expiry was logged
     expect(mockLogger.warn).toHaveBeenCalledWith(

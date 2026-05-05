@@ -102,7 +102,6 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
   const sourceCover = pickStr(source, "cover_url");
   const sourceIgdbId = pickNum(source, "igdb_id");
   const sourceSlug = pickStr(source, "slug");
-  const sourceDiscordAppId = pickStr(source, "discord_application_id");
   const sourceAdminRemappedAt = pickStr(source, "admin_remapped_at");
   const sourceGenres = pickArr(source, "genres");
   const sourceDeveloper = pickStr(source, "developer");
@@ -233,12 +232,6 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
         </div>
         <div className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-1.5 text-xs">
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Discord application id</span>
-            <code className="text-[11px] bg-muted/40 px-1.5 py-0.5 rounded">
-              {sourceDiscordAppId ?? "null"}
-            </code>
-          </div>
-          <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Ignored flag</span>
             <span>{String(source["ignored"] ?? false)}</span>
           </div>
@@ -290,12 +283,6 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
             <div className="font-medium">{targetLabel} will be deleted</div>
             <div className="text-muted-foreground">
               Empty row (igdb_id {targetIgdbId}) has zero FK references and will be removed.
-              {pickStr(target, "discord_application_id") && (
-                <>
-                  {" "}Its <code className="bg-muted/40 px-1 rounded">discord_application_id</code> (
-                  <code className="bg-muted/40 px-1 rounded">{pickStr(target, "discord_application_id")}</code>) will be lost — {sourceLabel}'s is preserved.
-                </>
-              )}
             </div>
           </div>
         </div>
@@ -308,7 +295,6 @@ export function RemapPreview({ plan, igdbMetadata, isApplying, onConfirm, onCanc
           sourceLabel={sourceLabel}
           targetLabel={targetLabel}
           targetIgdbId={targetIgdbId}
-          targetDiscordAppId={pickStr(target, "discord_application_id")}
           fkCountsTarget={fk_counts.target}
         />
       )}
@@ -347,7 +333,6 @@ interface MergeSectionsProps {
   sourceLabel: string;
   targetLabel: string;
   targetIgdbId: number | null;
-  targetDiscordAppId: string | null;
   fkCountsTarget: { sessions: number; user_games: number; library: number } | null;
 }
 
@@ -356,7 +341,6 @@ function MergeSections({
   sourceLabel,
   targetLabel,
   targetIgdbId,
-  targetDiscordAppId,
   fkCountsTarget,
 }: MergeSectionsProps) {
   const [showUserGames, setShowUserGames] = useState(false);
@@ -526,12 +510,6 @@ function MergeSections({
           <div className="font-medium">{targetLabel} will be deleted</div>
           <div className="text-muted-foreground">
             Row (igdb_id {targetIgdbId}) is removed after FKs reassign.
-            {targetDiscordAppId && (
-              <>
-                {" "}Its <code className="bg-muted/40 px-1 rounded">discord_application_id</code> (
-                <code className="bg-muted/40 px-1 rounded">{targetDiscordAppId}</code>) will be lost — {sourceLabel}'s is preserved.
-              </>
-            )}
           </div>
         </div>
       </div>

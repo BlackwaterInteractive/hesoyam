@@ -81,7 +81,6 @@ function groupSessionsForDay(
         first_release_date: null,
         igdb_updated_at: null,
         metadata_source: null,
-        discord_application_id: null,
         created_at: '',
       }
       const userGame = gameId ? userGames.find((ug) => ug.game_id === gameId) : null

@@ -8,10 +8,12 @@ import { DiscordAppData } from '../discord/discord-app.service';
  * Covers the non-trivial GamesService methods: dynamic update construction
  * (applyDiscordData, the "never clobber curated values" invariant), the
  * slug regex pipeline + timestamp suffix in createMinimal, and the
- * conditional updates with .is(...null) filters used by setApplicationId
- * and setDiscordNameIfMissing. Pure pass-through queries (findExact,
- * findFuzzy, findByApplicationId) are intentionally not covered — they
- * test the Supabase SDK, not us.
+ * conditional update with .is(...null) filter used by setDiscordNameIfMissing.
+ * Plus linkDiscordApplications — race-safe upsert into the federation table
+ * and findByApplicationIds — the reverse-lookup that drives commutative
+ * ingestion. Pure pass-through queries (findExact, findFuzzy,
+ * findByApplicationId) are intentionally not covered — they test the
+ * Supabase SDK, not us.
  */
 describe('GamesService', () => {
   let service: GamesService;
@@ -40,12 +42,14 @@ describe('GamesService', () => {
       'in',
       'update',
       'insert',
+      'upsert',
       'ilike',
       'rpc',
     ].forEach((m) => {
       c[m] = jest.fn(() => c);
     });
     c.single = jest.fn().mockResolvedValue(result);
+    c.maybeSingle = jest.fn().mockResolvedValue(result);
     c.then = (resolve: (v: ChainResult) => unknown) =>
       Promise.resolve(result).then(resolve);
     return c as Record<string, jest.Mock> & PromiseLike<ChainResult>;
@@ -79,6 +83,7 @@ describe('GamesService', () => {
       icon: null,
       cover_image: null,
       aliases: ['Hades I', 'SuperGiant Hades'],
+      linked_app_ids: [],
       igdb_id: 113112,
       steam_app_id: '1145360',
       gog_id: '1207659145',
@@ -148,6 +153,7 @@ describe('GamesService', () => {
         icon: null,
         cover_image: null,
         aliases: [],
+        linked_app_ids: [],
         igdb_id: null,
         steam_app_id: null,
         gog_id: null,
@@ -221,32 +227,111 @@ describe('GamesService', () => {
     });
   });
 
-  describe('setApplicationId — only writes when discord_application_id is null', () => {
-    it('issues update with .is(discord_application_id, null) guard', async () => {
+  describe('linkDiscordApplications — race-safe upsert into the federation table', () => {
+    it('upserts primary + linked_games as one batch keyed by application_id', async () => {
       const c = chain({ data: null, error: null });
       from.mockReturnValue(c);
 
-      await service.setApplicationId('game-1', 'app-123');
+      await service.linkDiscordApplications('game-1', 'app-primary', [
+        'app-launcher',
+        'app-demo',
+      ]);
 
-      expect(from).toHaveBeenCalledWith('games');
-      expect(c.update).toHaveBeenCalledWith({
-        discord_application_id: 'app-123',
-      });
-      expect(c.eq).toHaveBeenCalledWith('id', 'game-1');
-      expect(c.is).toHaveBeenCalledWith('discord_application_id', null);
+      expect(from).toHaveBeenCalledWith('game_discord_applications');
+      expect(c.upsert).toHaveBeenCalledWith(
+        [
+          { application_id: 'app-primary', game_id: 'game-1' },
+          { application_id: 'app-launcher', game_id: 'game-1' },
+          { application_id: 'app-demo', game_id: 'game-1' },
+        ],
+        { onConflict: 'application_id', ignoreDuplicates: true },
+      );
     });
 
-    it('logs (does not throw) when the update conflicts on the unique constraint', async () => {
+    it('deduplicates application ids across primary + linked', async () => {
+      const c = chain({ data: null, error: null });
+      from.mockReturnValue(c);
+
+      // primary id appears in linked_games too — should still produce one row.
+      await service.linkDiscordApplications('game-1', 'app-primary', [
+        'app-primary',
+        'app-launcher',
+      ]);
+
+      const rows = c.upsert.mock.calls[0][0] as { application_id: string }[];
+      const ids = rows.map((r) => r.application_id).sort();
+      expect(ids).toEqual(['app-launcher', 'app-primary']);
+    });
+
+    it('logs (does not throw) when upsert errors — loser of an ON CONFLICT race continues', async () => {
       from.mockReturnValue(
-        chain({
-          data: null,
-          error: { message: 'duplicate key value violates unique constraint' },
-        }),
+        chain({ data: null, error: { message: 'pg constraint' } }),
       );
 
       await expect(
-        service.setApplicationId('game-1', 'app-123'),
+        service.linkDiscordApplications('game-1', 'app-primary', []),
       ).resolves.toBeUndefined();
+    });
+
+    it('handles primary-only call (no linked_games) by upserting just the primary', async () => {
+      const c = chain({ data: null, error: null });
+      from.mockReturnValue(c);
+
+      await service.linkDiscordApplications('game-1', 'app-primary');
+
+      const rows = c.upsert.mock.calls[0][0] as { application_id: string }[];
+      expect(rows).toEqual([
+        { application_id: 'app-primary', game_id: 'game-1' },
+      ]);
+    });
+  });
+
+  describe('findByApplicationIds — reverse lookup for linked_games federation', () => {
+    const game = {
+      id: 'game-1',
+      name: 'Delta Force',
+      slug: 'delta-force',
+      cover_url: null,
+      igdb_id: 262186,
+    };
+
+    it('returns empty array when given no ids — avoids querying the DB at all', async () => {
+      const result = await service.findByApplicationIds([]);
+      expect(result).toEqual([]);
+      expect(from).not.toHaveBeenCalled();
+    });
+
+    it('flattens joined rows and filters out null games (orphaned junction entries)', async () => {
+      from.mockReturnValue(
+        chain({
+          data: [
+            { application_id: 'app-a', game },
+            { application_id: 'app-b', game: null },
+            { application_id: 'app-c', game },
+          ],
+          error: null,
+        }),
+      );
+
+      const result = await service.findByApplicationIds([
+        'app-a',
+        'app-b',
+        'app-c',
+      ]);
+
+      expect(result).toEqual([
+        { application_id: 'app-a', game },
+        { application_id: 'app-c', game },
+      ]);
+    });
+
+    it('returns empty array when DB errors — caller falls through to fresh resolve', async () => {
+      from.mockReturnValue(
+        chain({ data: null, error: { message: 'rls denied' } }),
+      );
+
+      const result = await service.findByApplicationIds(['app-a']);
+      expect(result).toEqual([]);
     });
   });
 

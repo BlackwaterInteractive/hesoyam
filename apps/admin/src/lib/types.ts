@@ -85,7 +85,6 @@ export type Database = {
           igdb_updated_at: string | null
           metadata_source: string | null
           ignored: boolean
-          discord_application_id: string | null
           created_at: string
           admin_remapped_at: string | null
           admin_remapped_by: string | null
@@ -126,7 +125,6 @@ export type Database = {
           igdb_updated_at?: string | null
           metadata_source?: string | null
           ignored?: boolean
-          discord_application_id?: string | null
           created_at?: string
           admin_remapped_at?: string | null
           admin_remapped_by?: string | null
@@ -167,7 +165,6 @@ export type Database = {
           igdb_updated_at?: string | null
           metadata_source?: string | null
           ignored?: boolean
-          discord_application_id?: string | null
           created_at?: string
           admin_remapped_at?: string | null
           admin_remapped_by?: string | null
@@ -308,6 +305,32 @@ export type Database = {
       get_admin_platform_overview: {
         Args: Record<string, never>
         Returns: Json
+      }
+      admin_consolidate_games_plan: {
+        Args: {
+          p_orphan_id: string
+          p_canonical_id: string
+        }
+        Returns: Json
+      }
+      admin_consolidate_games: {
+        Args: {
+          p_orphan_id: string
+          p_canonical_id: string
+          p_actor_id: string
+        }
+        Returns: Json
+      }
+      admin_consolidation_candidates: {
+        Args: Record<string, never>
+        Returns: {
+          orphan_id: string
+          orphan_name: string
+          canonical_id: string | null
+          canonical_name: string | null
+          reason: string
+          signal_strength: number
+        }[]
       }
       admin_remap_plan: {
         Args: {

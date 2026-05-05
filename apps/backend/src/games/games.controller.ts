@@ -8,6 +8,7 @@ import { ResolveGameDto } from './dto/resolve-game.dto';
 import { SearchGamesDto } from './dto/search-games.dto';
 import { ImportGameDto } from './dto/import-game.dto';
 import { IgdbMetadataDto } from './dto/igdb-metadata.dto';
+import { InvalidateApplicationCacheDto } from './dto/invalidate-cache.dto';
 
 @ApiTags('Games')
 @Controller('games')
@@ -84,5 +85,26 @@ Differs from \`POST /games/import\`, which upserts as a side effect. Do not use 
   @ApiResponse({ status: 200, type: IgdbMetadataDto })
   getIgdbMetadata(@Param('id', ParseIntPipe) igdbId: number): Promise<IgdbMetadataDto> {
     return this.igdb.fetchGameData(igdbId);
+  }
+
+  @Post('cache/invalidate-application-ids')
+  @RequireJwt()
+  @ApiOperation({
+    summary: 'Drop resolver-cache entries for given Discord application IDs',
+    description: `**Called by:** admin app — Consolidate Games action.
+
+After a junction-row move (orphan → canonical), the resolver's in-memory LRU still maps \`appid:X → orphan_game_id\` for up to 1h until TTL expiry. Without invalidation, subsequent presence events resolve to the now-deleted orphan id and session inserts fail with FK violations.
+
+This endpoint pure-deletes those cache entries (no DB or RPC). The next presence event for any of the supplied ids re-resolves via the junction and hits the canonical row.
+
+**Returns:** \`{ invalidated: number }\` — count of entries dropped (always equals \`applicationIds.length\`; entries that weren't cached are no-ops).`,
+  })
+  invalidateApplicationCache(
+    @Body() dto: InvalidateApplicationCacheDto,
+  ): { invalidated: number } {
+    const invalidated = this.gameResolver.invalidateApplicationIds(
+      dto.applicationIds,
+    );
+    return { invalidated };
   }
 }

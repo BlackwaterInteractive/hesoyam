@@ -235,4 +235,36 @@ describe('DiscordAppService.fetchAppData', () => {
     expect(result?.type).toBe(1);
     expect(result?.igdb_id).toBeNull();
   });
+
+  it('extracts linked_games[].id into linked_app_ids — drives reverse-lookup federation', async () => {
+    // Real-world Delta Force shape: linked_games points at the launcher,
+    // which the resolver uses to federate the launcher's app id onto the
+    // same canonical game row.
+    const service = await createService();
+    httpGet.mockReturnValue(
+      of({
+        data: {
+          id: '1314682894106497096',
+          name: 'Delta Force',
+          type: 5,
+          linked_games: [{ id: '1210430430172680212', type: 1 }],
+        },
+      }),
+    );
+
+    const result = await service.fetchAppData('1314682894106497096');
+    expect(result?.linked_app_ids).toEqual(['1210430430172680212']);
+  });
+
+  it('returns linked_app_ids = [] when linked_games is missing', async () => {
+    const service = await createService();
+    httpGet.mockReturnValue(
+      of({
+        data: { id: '444', name: 'No-links', type: 5 /* no linked_games */ },
+      }),
+    );
+
+    const result = await service.fetchAppData('444');
+    expect(result?.linked_app_ids).toEqual([]);
+  });
 });

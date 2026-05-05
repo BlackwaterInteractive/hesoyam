@@ -83,7 +83,7 @@ export function GameplayCardClient({ initialSession, lastSession, userId }: Game
         description: null, publisher: null, platforms: null, screenshots: null,
         artwork_url: null, igdb_url: null, rating: null, rating_count: null,
         first_release_date: null, igdb_updated_at: null, metadata_source: null,
-        discord_application_id: null, created_at: session.created_at,
+        created_at: session.created_at,
       }
     }
 
@@ -139,7 +139,6 @@ export function GameplayCardClient({ initialSession, lastSession, userId }: Game
           first_release_date: dbSession?.game.first_release_date ?? null,
           igdb_updated_at: dbSession?.game.igdb_updated_at ?? null,
           metadata_source: dbSession?.game.metadata_source ?? null,
-          discord_application_id: dbSession?.game.discord_application_id ?? null,
           created_at: dbSession?.game.created_at ?? presence.started_at,
         },
       }

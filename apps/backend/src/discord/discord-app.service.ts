@@ -22,10 +22,20 @@ export interface DiscordAppData {
   id: string;
   name: string;
   description: string | null;
-  type: number; // 1=bot, 5=game, others undocumented but observable
+  // Discord application type: 5=Distribution (modern game), 1=Game (legacy),
+  // 4=Music, null=generic application/bot. We do not branch on it — the
+  // resolver federates by id and consults `igdb_id` / `linked_app_ids`
+  // instead. Surfaced here for diagnostics only.
+  type: number;
   icon: string | null;
   cover_image: string | null;
   aliases: string[];
+  // Other Discord application IDs the response advertises as linked to this
+  // one — typically the game's launcher, regional variant, or demo (Discord
+  // RPC `linked_games[].id`). Seeded into `game_discord_applications` so
+  // future presence events for those ids resolve to the same canonical game
+  // without a second admin action. May be empty.
+  linked_app_ids: string[];
   igdb_id: number | null;
   steam_app_id: string | null;
   gog_id: string | null;
@@ -43,6 +53,7 @@ interface DiscordRpcResponse {
   cover_image?: string | null;
   aliases?: string[];
   third_party_skus?: { id: string; sku?: string; distributor: string }[];
+  linked_games?: { id: string; type?: number }[];
 }
 
 /**
@@ -207,6 +218,7 @@ export class DiscordAppService implements OnModuleInit {
       icon: raw.icon ?? null,
       cover_image: raw.cover_image ?? null,
       aliases: raw.aliases ?? [],
+      linked_app_ids: (raw.linked_games ?? []).map((g) => g.id),
       igdb_id,
       steam_app_id: findSku('steam'),
       gog_id: findSku('gop'),

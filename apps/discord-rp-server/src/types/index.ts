@@ -16,7 +16,21 @@ export interface ActiveSession {
   id: string;           // Session ID from database
   userId: string;       // Hesoyam user ID
   discordId: string;    // Discord user ID
+  /**
+   * Canonical game name from the resolved games row. Used by broadcasts
+   * and the user-facing UI so the displayed name doesn't flip when one
+   * game's Discord activity flap-changes between launcher / companion /
+   * regional variants of the same canonical game (#194).
+   */
   gameName: string;
+  /**
+   * Latest raw Discord presence activity name (e.g. "Delta Force Game"
+   * for the companion bot, "Delta Force" for the main app). Updated on
+   * every game change. Used by stale-session verify and flicker-recovery
+   * checks — those need to compare against what Discord *currently* says,
+   * not the canonical name.
+   */
+  discordActivityName: string;
   gameId: string | null;
   gameSlug: string;
   coverUrl: string | null;

@@ -103,7 +103,6 @@ export function LiveSessionCard({
           first_release_date: null,
           igdb_updated_at: null,
           metadata_source: null,
-          discord_application_id: null,
           created_at: session.created_at,
         }
       }
@@ -194,7 +193,6 @@ export function LiveSessionCard({
           first_release_date: dbGame?.first_release_date ?? null,
           igdb_updated_at: dbGame?.igdb_updated_at ?? null,
           metadata_source: dbGame?.metadata_source ?? null,
-          discord_application_id: dbGame?.discord_application_id ?? null,
           created_at: dbGame?.created_at ?? presence.started_at,
         },
       }

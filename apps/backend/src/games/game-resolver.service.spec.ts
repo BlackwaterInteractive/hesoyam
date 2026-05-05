@@ -21,10 +21,11 @@ describe('GameResolverService', () => {
   let service: GameResolverService;
   let games: {
     findByApplicationId: jest.Mock;
+    findByApplicationIds: jest.Mock;
     findExact: jest.Mock;
     findFuzzy: jest.Mock;
     createMinimal: jest.Mock;
-    setApplicationId: jest.Mock;
+    linkDiscordApplications: jest.Mock;
     applyDiscordData: jest.Mock;
     setDiscordNameIfMissing: jest.Mock;
   };
@@ -52,10 +53,13 @@ describe('GameResolverService', () => {
   beforeEach(async () => {
     games = {
       findByApplicationId: jest.fn(),
+      // Default: reverse-lookup misses unless a test sets it. Keeps Tier 0c
+      // tests that don't use linked_games unaffected.
+      findByApplicationIds: jest.fn().mockResolvedValue([]),
       findExact: jest.fn(),
       findFuzzy: jest.fn(),
       createMinimal: jest.fn(),
-      setApplicationId: jest.fn().mockResolvedValue(undefined),
+      linkDiscordApplications: jest.fn().mockResolvedValue(undefined),
       applyDiscordData: jest.fn().mockResolvedValue(undefined),
       setDiscordNameIfMissing: jest.fn().mockResolvedValue(undefined),
     };
@@ -106,6 +110,7 @@ describe('GameResolverService', () => {
     icon: overrides.icon ?? null,
     cover_image: overrides.cover_image ?? null,
     aliases: overrides.aliases ?? [],
+    linked_app_ids: overrides.linked_app_ids ?? [],
     igdb_id: overrides.igdb_id ?? null,
     steam_app_id: overrides.steam_app_id ?? null,
     gog_id: overrides.gog_id ?? null,
@@ -128,7 +133,7 @@ describe('GameResolverService', () => {
     expect(games.findFuzzy).not.toHaveBeenCalled();
   });
 
-  it('falls through to exact match when applicationId misses', async () => {
+  it('falls through to exact match when applicationId misses, federates the app id onto the row', async () => {
     const result = makeResolved();
     games.findByApplicationId.mockResolvedValueOnce(null);
     games.findExact.mockResolvedValueOnce(result);
@@ -137,7 +142,13 @@ describe('GameResolverService', () => {
 
     expect(games.findExact).toHaveBeenCalled();
     expect(games.findFuzzy).not.toHaveBeenCalled();
-    expect(games.setApplicationId).toHaveBeenCalledWith(result.id, 'app-1');
+    // No Discord RPC data here (mock returns null by default), so just the
+    // primary application id gets seeded; no linked siblings.
+    expect(games.linkDiscordApplications).toHaveBeenCalledWith(
+      result.id,
+      'app-1',
+      [],
+    );
   });
 
   it('falls through to fuzzy match when exact misses', async () => {
@@ -259,7 +270,7 @@ describe('GameResolverService', () => {
     expect(games.findByApplicationId).toHaveBeenCalledTimes(1);
   });
 
-  it('coalesced callers that provide an applicationId still get it linked afterward', async () => {
+  it('coalesced callers that provide an applicationId still get it federated afterward', async () => {
     const result = makeResolved({ id: 'canon' });
     games.findExact.mockImplementation(
       () => new Promise((r) => setTimeout(() => r(result), 30)),
@@ -267,7 +278,7 @@ describe('GameResolverService', () => {
 
     // First caller has no applicationId; second caller has one.
     // They coalesce on `name:rdr2` — second caller must still have its
-    // applicationId linked once the resolve settles.
+    // applicationId federated onto the canonical row once the resolve settles.
     const [a, b] = await Promise.all([
       service.resolve('RDR2'),
       service.resolve('RDR2', 'late-app'),
@@ -275,7 +286,11 @@ describe('GameResolverService', () => {
 
     expect(a).toEqual(result);
     expect(b).toEqual(result);
-    expect(games.setApplicationId).toHaveBeenCalledWith('canon', 'late-app');
+    expect(games.linkDiscordApplications).toHaveBeenCalledWith(
+      'canon',
+      'late-app',
+      [],
+    );
   });
 
   it('clears the in-flight entry after resolution, allowing a later fresh cascade', async () => {
@@ -351,24 +366,150 @@ describe('GameResolverService', () => {
     expect(games.applyDiscordData).toHaveBeenCalled();
   });
 
-  it('Tier 0c skips Discord data for type=1 bots and falls through with the original presence string', async () => {
+  it('Tier 0c does NOT filter by Discord application type — applications with no IGDB sku just fall through normally and persist whatever Discord metadata is available', async () => {
+    // Pre-#194 the resolver had a hardcoded `type === 1` "bot filter" that
+    // skipped applyDiscordData. The constant was wrong (Discord type 1 is
+    // legacy Game, not bot — bots are type=null), and the filter caused
+    // legitimate game RPC data to be discarded for any application that
+    // happened to come back as type 1. Federation handles bot/launcher
+    // siblings via linked_games + admin Consolidate; no type filter needed.
     const result = makeResolved();
     games.findByApplicationId.mockResolvedValueOnce(null);
     discordApp.fetchAppData.mockResolvedValueOnce(
-      makeDiscordData({ name: 'carl-bot', type: 1, igdb_id: null }),
+      makeDiscordData({
+        name: 'Discord Canonical Name',
+        type: 1,
+        igdb_id: null,
+      }),
     );
     games.findExact.mockResolvedValueOnce(null);
     games.findFuzzy.mockResolvedValueOnce(null);
     igdb.searchAndImport.mockResolvedValueOnce(result);
 
-    await service.resolve('Raw presence string', 'bot-app');
+    await service.resolve('Raw presence string', 'app-typeone');
 
-    // Bot data ignored: search runs against the original presence string,
-    // and we do NOT persist Discord-side fields onto the row.
-    expect(igdb.searchAndImport).toHaveBeenCalledWith('Raw presence string');
-    expect(games.applyDiscordData).not.toHaveBeenCalled();
-    // #114: at least the original presence string should land on discord_name.
-    expect(games.setDiscordNameIfMissing).toHaveBeenCalled();
+    // No type filter — Discord's name overrides the presence string for
+    // downstream search, and Discord metadata gets persisted onto the row.
+    expect(igdb.searchAndImport).toHaveBeenCalledWith('Discord Canonical Name');
+    expect(games.applyDiscordData).toHaveBeenCalled();
+  });
+
+  // ── Tier 0b: linked_games reverse lookup (#194) ─────────────────────────
+
+  it('reverse lookup: when RPC linked_games match an existing canonical row, federates the new app id onto it instead of creating a new game', async () => {
+    // Order B from issue #194: launcher arrived first and created a game.
+    // Now the main app arrives, RPC reports linked_games = [launcher]. The
+    // resolver must merge into the existing row, not create a new one.
+    const canonical = makeResolved({ id: 'canonical-game' });
+    games.findByApplicationId.mockResolvedValueOnce(null); // forward miss
+    discordApp.fetchAppData.mockResolvedValueOnce(
+      makeDiscordData({
+        name: 'Delta Force',
+        igdb_id: 262186,
+        linked_app_ids: ['launcher-app-id'],
+      }),
+    );
+    games.findByApplicationIds.mockResolvedValueOnce([
+      { application_id: 'launcher-app-id', game: canonical },
+    ]);
+
+    const out = await service.resolve('Delta Force', 'main-app-id');
+
+    expect(out).toEqual(canonical);
+    // No name-based tiers, no IGDB import — the existing row wins.
+    expect(games.findExact).not.toHaveBeenCalled();
+    expect(games.findFuzzy).not.toHaveBeenCalled();
+    expect(igdb.importById).not.toHaveBeenCalled();
+    expect(igdb.searchAndImport).not.toHaveBeenCalled();
+    // The new app id gets federated onto the canonical row, alongside its
+    // RPC-reported linked siblings (idempotent on conflict).
+    expect(games.linkDiscordApplications).toHaveBeenCalledWith(
+      'canonical-game',
+      'main-app-id',
+      ['launcher-app-id'],
+    );
+  });
+
+  it('reverse lookup miss does not affect the rest of the cascade', async () => {
+    const result = makeResolved({ id: 'imported', igdb_id: 1970 });
+    games.findByApplicationId.mockResolvedValueOnce(null);
+    discordApp.fetchAppData.mockResolvedValueOnce(
+      makeDiscordData({
+        name: 'Some Game',
+        igdb_id: 1970,
+        linked_app_ids: ['unknown-sibling'],
+      }),
+    );
+    games.findByApplicationIds.mockResolvedValueOnce([]); // siblings unknown
+    igdb.importById.mockResolvedValueOnce(result);
+
+    const out = await service.resolve('Some Game', 'app-x');
+
+    expect(out).toEqual(result);
+    // IGDB authoritative path takes over (igdb_id present), still seeds
+    // both primary AND linked sibling onto the new row for future events.
+    expect(games.linkDiscordApplications).toHaveBeenCalledWith(
+      'imported',
+      'app-x',
+      ['unknown-sibling'],
+    );
+  });
+
+  // Commutative ingestion: regardless of which app id Discord broadcasts
+  // first, both end up federated onto the same canonical row. Split into
+  // two it-blocks so each gets a clean service via beforeEach (otherwise
+  // the resolver's LRU cache would carry the first call's result through).
+
+  it('commutative order A: main app arrives first → IGDB import + linked_games seeded', async () => {
+    const canonical = makeResolved({ id: 'canon-from-main', igdb_id: 262186 });
+    games.findByApplicationId.mockResolvedValueOnce(null);
+    discordApp.fetchAppData.mockResolvedValueOnce(
+      makeDiscordData({
+        name: 'Delta Force',
+        igdb_id: 262186,
+        linked_app_ids: ['launcher'],
+      }),
+    );
+    games.findByApplicationIds.mockResolvedValueOnce([]); // launcher unknown
+    igdb.importById.mockResolvedValueOnce(canonical);
+
+    const out = await service.resolve('Delta Force', 'main');
+
+    expect(out).toEqual(canonical);
+    expect(games.linkDiscordApplications).toHaveBeenCalledWith(
+      'canon-from-main',
+      'main',
+      ['launcher'],
+    );
+  });
+
+  it('commutative order B: launcher already federated → main app folds in via reverse lookup, no IGDB import', async () => {
+    const canonical = makeResolved({
+      id: 'canon-from-launcher',
+      igdb_id: 262186,
+    });
+    games.findByApplicationId.mockResolvedValueOnce(null);
+    discordApp.fetchAppData.mockResolvedValueOnce(
+      makeDiscordData({
+        name: 'Delta Force',
+        igdb_id: 262186,
+        linked_app_ids: ['launcher'],
+      }),
+    );
+    // Reverse lookup hits — launcher already maps to a canonical row.
+    games.findByApplicationIds.mockResolvedValueOnce([
+      { application_id: 'launcher', game: canonical },
+    ]);
+
+    const out = await service.resolve('Delta Force', 'main');
+
+    expect(out).toEqual(canonical);
+    expect(igdb.importById).not.toHaveBeenCalled();
+    expect(games.linkDiscordApplications).toHaveBeenCalledWith(
+      'canon-from-launcher',
+      'main',
+      ['launcher'],
+    );
   });
 
   it('Tier 0c is bypassed entirely when no applicationId is provided', async () => {
@@ -417,5 +558,41 @@ describe('GameResolverService', () => {
     expect(igdb.searchAndImport).toHaveBeenCalledWith('Discord Name');
     // Discord-side fields still applied to the eventually-resolved row.
     expect(games.applyDiscordData).toHaveBeenCalled();
+  });
+
+  // ── Cache invalidation (admin Consolidate hook, #194 PR 2) ──────────────
+
+  it('invalidateApplicationIds drops cached entries so subsequent resolves re-hit DB', async () => {
+    const orphanGame = makeResolved({ id: 'orphan-game' });
+    const canonicalGame = makeResolved({ id: 'canonical-game' });
+
+    // Warm the cache via a normal resolve: applicationId fast path returns
+    // the orphan (simulating the pre-consolidate state).
+    games.findByApplicationId.mockResolvedValueOnce(orphanGame);
+    const first = await service.resolve('Delta Force Game', 'orphan-app');
+    expect(first.id).toBe('orphan-game');
+    expect(games.findByApplicationId).toHaveBeenCalledTimes(1);
+
+    // Same call hits the cache — no new DB lookup.
+    await service.resolve('Delta Force Game', 'orphan-app');
+    expect(games.findByApplicationId).toHaveBeenCalledTimes(1);
+
+    // Admin consolidates: invalidate the cache for the moved app id.
+    const count = service.invalidateApplicationIds(['orphan-app']);
+    expect(count).toBe(1);
+
+    // Next resolve must touch DB again. Now the junction returns canonical.
+    games.findByApplicationId.mockResolvedValueOnce(canonicalGame);
+    const second = await service.resolve('Delta Force Game', 'orphan-app');
+    expect(second.id).toBe('canonical-game');
+    expect(games.findByApplicationId).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidateApplicationIds is a no-op for ids that were never cached', async () => {
+    const count = service.invalidateApplicationIds(['never-cached-1', 'never-cached-2']);
+    // Returns the number of delete calls made, not the number of entries actually present.
+    expect(count).toBe(2);
+    // No DB calls.
+    expect(games.findByApplicationId).not.toHaveBeenCalled();
   });
 });

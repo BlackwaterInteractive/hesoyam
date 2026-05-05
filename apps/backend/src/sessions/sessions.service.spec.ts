@@ -8,10 +8,16 @@ import { ResolvedGame } from '../games/games.service';
 
 /**
  * Covers the SessionsService state machine — startSession in particular,
- * which has the highest branch density of any backend service:
- *   - active session for same game → idempotent return
- *   - active session for different game → close-and-restart
- *   - no active + matching last-session launch → reopen via RPC
+ * which has the highest branch density of any backend service. Post-#194
+ * federation, all lifecycle decisions key on the resolver-returned
+ * canonical `game_id`, not the raw Discord `gameName`. Resolver runs
+ * BEFORE the active-session lookup so the comparison is always on the
+ * canonical id.
+ *
+ *   - active session for same canonical game → idempotent return
+ *   - active session for different canonical game → close-and-restart
+ *   - no active + matching last-session launch (same game_id +
+ *     started_at) → reopen via RPC
  *   - reopen RPC fails → fall through to fresh create
  *   - no active + no reopen match → fresh create
  *
@@ -106,24 +112,39 @@ describe('SessionsService', () => {
   };
 
   describe('startSession', () => {
-    it('idempotent: returns the existing session when same game is already active', async () => {
+    it('idempotent: returns the existing session when same canonical game is already active (game_id match, regardless of game_name flap)', async () => {
+      // Active session was recorded under one Discord-presence name; the
+      // incoming dto carries a different Discord-presence name (e.g. game's
+      // companion bot fired after the main app). Both resolve to the same
+      // canonical game_id — must not churn the session.
       const activeSession = {
         id: 'session-existing',
         game_name: 'Hades',
         game_id: 'game-uuid',
         user_id: 'user-1',
       };
+      resolverResolve.mockResolvedValue(resolved);
       from.mockReturnValueOnce(chain({ data: activeSession, error: null }));
 
-      const result = await service.startSession(baseDto);
+      const result = await service.startSession({
+        ...baseDto,
+        gameName: 'Hades Companion',
+      });
 
-      expect(result).toEqual({ session: activeSession, reopened: false });
-      expect(resolverResolve).not.toHaveBeenCalled();
+      expect(resolverResolve).toHaveBeenCalledWith('Hades Companion', undefined);
+      expect(result).toEqual({
+        session: activeSession,
+        resolvedGame: resolved,
+        reopened: false,
+      });
       expect(presenceBroadcast).not.toHaveBeenCalled();
+      // Resolver runs first; only one DB roundtrip to find the active session.
       expect(from).toHaveBeenCalledTimes(1);
+      // No close, no insert.
+      expect(rpc).not.toHaveBeenCalled();
     });
 
-    it('different game already active: closes existing first, then creates new', async () => {
+    it('different canonical game already active: closes existing first, then creates new', async () => {
       const oldActive = {
         id: 'session-old',
         game_name: 'OldGame',
@@ -134,6 +155,7 @@ describe('SessionsService', () => {
       const newSession = {
         id: 'session-new',
         game_name: 'Hades',
+        game_id: 'game-uuid',
         started_at: '2026-04-30T00:00:01Z',
       };
 
@@ -171,7 +193,7 @@ describe('SessionsService', () => {
       });
     });
 
-    it('reopen path: same game + same launch timestamp → calls reopen RPC and broadcasts start', async () => {
+    it('reopen path: same canonical game_id + same launch timestamp → calls reopen RPC and broadcasts start', async () => {
       const launchedAt = '2026-04-30T12:00:00.000Z';
       const lastSession = {
         id: 'session-prev',
@@ -184,6 +206,7 @@ describe('SessionsService', () => {
       };
       const reopened = { ...lastSession, ended_at: null };
 
+      resolverResolve.mockResolvedValue(resolved);
       from
         .mockReturnValueOnce(chain({ data: null, error: null })) // no active
         .mockReturnValueOnce(chain({ data: lastSession, error: null })) // last session
@@ -203,8 +226,11 @@ describe('SessionsService', () => {
         'user-1',
         expect.objectContaining({ event: 'start', started_at: launchedAt }),
       );
-      expect(result).toEqual({ session: reopened, reopened: true });
-      expect(resolverResolve).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        session: reopened,
+        resolvedGame: resolved,
+        reopened: true,
+      });
     });
 
     it('reopen RPC failure: falls through to fresh-create path', async () => {
@@ -235,6 +261,48 @@ describe('SessionsService', () => {
       });
 
       expect(resolverResolve).toHaveBeenCalled();
+      expect(result).toEqual({
+        session: newSession,
+        resolvedGame: resolved,
+        reopened: false,
+      });
+    });
+
+    it('reopen skipped when last session resolves to a different canonical game (game_id mismatch)', async () => {
+      // User played Hades yesterday; today launches a different game whose
+      // Discord presence happens to share Hades's started_at by coincidence.
+      // Without keying on game_id, naive timestamp match would re-extend the
+      // wrong session.
+      const launchedAt = '2026-04-30T12:00:00.000Z';
+      const lastSession = {
+        id: 'session-prev',
+        game_name: 'OtherGame',
+        game_id: 'different-game-uuid', // ← key difference
+        started_at: launchedAt,
+        ended_at: '2026-04-30T13:00:00.000Z',
+      };
+      const newSession = {
+        id: 'session-new',
+        game_name: 'Hades',
+        started_at: launchedAt,
+      };
+
+      from
+        .mockReturnValueOnce(chain({ data: null, error: null })) // no active
+        .mockReturnValueOnce(chain({ data: lastSession, error: null })) // last closed
+        .mockReturnValueOnce(chain({ data: newSession, error: null })); // insert
+      resolverResolve.mockResolvedValue(resolved);
+
+      const result = await service.startSession({
+        ...baseDto,
+        startedAt: launchedAt,
+      });
+
+      // Reopen RPC was NOT called — game_id differed even though started_at matched.
+      expect(rpc).not.toHaveBeenCalledWith(
+        'reopen_session_atomic',
+        expect.anything(),
+      );
       expect(result).toEqual({
         session: newSession,
         resolvedGame: resolved,

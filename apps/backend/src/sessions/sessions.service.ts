@@ -20,7 +20,18 @@ export class SessionsService {
   async startSession(dto: StartSessionDto) {
     const client = this.supabase.getClient();
 
-    // 1. Check for existing active session
+    // 1. Resolve the canonical game first. After the federation work, all
+    // lifecycle decisions key on `game_id` (the canonical row) rather than
+    // the raw Discord `gameName`, so the same game flapping between
+    // multiple Discord application ids (launcher → game-proc, companion
+    // bot → main, regional variants) no longer triggers session churn.
+    // Cache + in-flight coalescing make this cheap on the hot path.
+    const resolvedGame = await this.gameResolver.resolve(
+      dto.gameName,
+      dto.applicationId,
+    );
+
+    // 2. Check for existing active session.
     const { data: activeSession } = await client
       .from('game_sessions')
       .select('*')
@@ -28,8 +39,21 @@ export class SessionsService {
       .is('ended_at', null)
       .single();
 
-    // If active session exists for a different game, close it first
-    if (activeSession && activeSession.game_name !== dto.gameName) {
+    // 3. Same canonical game already active — idempotent return.
+    if (activeSession && activeSession.game_id === resolvedGame.id) {
+      this.logger.info(
+        {
+          sessionId: activeSession.id,
+          gameId: resolvedGame.id,
+          gameName: dto.gameName,
+        },
+        'Session already active for this game, returning existing',
+      );
+      return { session: activeSession, resolvedGame, reopened: false };
+    }
+
+    // 4. Different canonical game already active — game switch. Close old.
+    if (activeSession && activeSession.game_id !== resolvedGame.id) {
       await this.endSession({
         userId: dto.userId,
         discordId: dto.discordId,
@@ -37,16 +61,9 @@ export class SessionsService {
       });
     }
 
-    // Same game already active — return existing session (idempotent)
-    if (activeSession && activeSession.game_name === dto.gameName) {
-      this.logger.info(
-        { sessionId: activeSession.id, gameName: dto.gameName },
-        'Session already active for this game, returning existing',
-      );
-      return { session: activeSession, reopened: false };
-    }
-
-    // 2. Try reopen — same game, same Discord launch timestamp
+    // 5. Try reopen — same canonical game, same Discord launch timestamp.
+    // Recovers from gateway reconnects where Discord re-emits the original
+    // started_at after a brief drop.
     if (dto.startedAt) {
       const { data: lastSession } = await client
         .from('game_sessions')
@@ -59,11 +76,15 @@ export class SessionsService {
 
       if (
         lastSession &&
-        lastSession.game_name === dto.gameName &&
+        lastSession.game_id === resolvedGame.id &&
         new Date(dto.startedAt).getTime() === new Date(lastSession.started_at).getTime()
       ) {
         this.logger.info(
-          { sessionId: lastSession.id, gameName: dto.gameName },
+          {
+            sessionId: lastSession.id,
+            gameId: resolvedGame.id,
+            gameName: dto.gameName,
+          },
           'Reopening session (same launch detected)',
         );
 
@@ -89,26 +110,22 @@ export class SessionsService {
           await this.presence.broadcast(dto.userId, {
             user_id: dto.userId,
             event: 'start',
-            game_name: session.game_name,
-            game_slug: session.game_slug ?? null,
-            cover_url: session.cover_url ?? null,
+            game_name: resolvedGame.name,
+            game_slug: resolvedGame.slug,
+            cover_url: resolvedGame.cover_url,
             started_at: session.started_at,
           });
 
-          return { session, reopened: true };
+          return { session, resolvedGame, reopened: true };
         }
 
         this.logger.warn({ error: reopenError }, 'Failed to reopen session, creating new one');
       }
     }
 
-    // 3. Resolve game
-    const resolvedGame = await this.gameResolver.resolve(
-      dto.gameName,
-      dto.applicationId,
-    );
-
-    // 4. Create new session
+    // 6. Create new session. `game_name` keeps being stored as audit
+    // metadata (the raw Discord presence string) — it's not used for any
+    // lifecycle decision after this commit.
     const { data: session, error } = await client
       .from('game_sessions')
       .insert({
@@ -127,11 +144,16 @@ export class SessionsService {
     }
 
     this.logger.info(
-      { sessionId: session.id, gameName: dto.gameName, userId: dto.userId },
+      {
+        sessionId: session.id,
+        gameId: resolvedGame.id,
+        gameName: dto.gameName,
+        userId: dto.userId,
+      },
       'Session created',
     );
 
-    // 5. Broadcast presence
+    // 7. Broadcast presence
     await this.presence.broadcast(dto.userId, {
       user_id: dto.userId,
       event: 'start',
