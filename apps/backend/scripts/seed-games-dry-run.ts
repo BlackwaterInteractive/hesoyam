@@ -34,6 +34,10 @@ const SAMPLE: Array<{ application_id: string; note: string }> = [
   { application_id: '762434991303950386',  note: 'Genshin Impact (no Steam SKU)' },
   { application_id: '1402418696126992445', note: 'League of Legends (no Steam SKU)' },
   { application_id: '489916817146511371',  note: 'Seasons after Fall (Steam SKU)' },
+  // Tier B / C exercise — sampled from per-app RPC probe; Discord does not
+  // expose `igdb` SKU for either, so Tier A misses on both.
+  { application_id: '496577285466357760',  note: 'Dragon Nest (no Discord IGDB, has Steam → Tier B)' },
+  { application_id: '1442739720038645780', note: 'Endzone: A World Apart - Survivor Edition (no IGDB, no Steam → Tier C)' },
 ];
 
 type SeedTier = 'A' | 'B' | 'C' | 'none';
