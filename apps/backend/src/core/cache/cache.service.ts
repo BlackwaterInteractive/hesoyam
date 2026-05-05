@@ -53,6 +53,19 @@ export class CacheService implements OnModuleInit {
       allowStale: true,
     });
 
+    // Steam SKU → IGDB game id resolution via /external_games. The mapping is
+    // very stable (years), so a 24h TTL is conservative; allowStale + 429
+    // fallback mirrors the igdb-search bucket so a rate-limit blip doesn't
+    // surface as missing data.
+    this.createCache('igdb-external-games', {
+      max: this.config.get<number>('IGDB_EXTERNAL_GAMES_CACHE_MAX', 500),
+      ttlMs: this.config.get<number>(
+        'IGDB_EXTERNAL_GAMES_CACHE_TTL_MS',
+        24 * 60 * 60 * 1000,
+      ),
+      allowStale: true,
+    });
+
     this.logger.info('Cache service initialized');
   }
 

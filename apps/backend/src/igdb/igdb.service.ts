@@ -11,6 +11,24 @@ import { ResolvedGame } from '../games/games.service';
 
 const IGDB_BASE_URL = 'https://api.igdb.com/v4';
 const SEARCH_CACHE = 'igdb-search';
+const EXTERNAL_GAMES_CACHE = 'igdb-external-games';
+
+// IGDB external_games filter — the API uses `external_game_source` (the
+// older `category` field is deprecated and silently no-ops in `where`
+// clauses, returning empty results for every query). 1 = Steam.
+// See https://api-docs.igdb.com/#external-game-source-enums.
+const EXTERNAL_GAME_SOURCE_STEAM = 1;
+
+interface IgdbExternalGameRow {
+  game: number; // canonical IGDB game id
+}
+
+// Wrapper so we can distinguish "not in cache" (undefined) from "cached as
+// known-not-found" ({ data: null }) — CacheService.set is typed
+// `T extends object`, so a bare null can't be stored.
+interface CachedExternalGame {
+  data: IgdbGameData | null;
+}
 
 /**
  * IGDB metadata in the exact shape we write to the `games` table (and the
@@ -39,6 +57,7 @@ export class IgdbService {
   // In-flight deduplication: concurrent callers with the same cache key
   // share one IGDB round-trip instead of fanning out.
   private inFlightSearches = new Map<string, Promise<unknown[]>>();
+  private inFlightExternalGames = new Map<string, Promise<IgdbGameData | null>>();
 
   constructor(
     private twitchAuth: TwitchAuthService,
@@ -220,6 +239,122 @@ export class IgdbService {
       rating_count: game.total_rating_count ?? null,
       platforms: game.platforms?.map((p: any) => p.name) ?? [],
     };
+  }
+
+  /**
+   * Resolve a Steam app id to its canonical IGDB game via IGDB's
+   * `/external_games` endpoint, then return the full IgdbGameData.
+   *
+   * Used by the bulk-seed pipeline as a Tier-B exact-match path when
+   * Discord's per-app RPC does NOT include an `igdb` SKU but DOES include
+   * a `steam` SKU. Avoids the fuzzy name-search fallback for any game
+   * that has a Steam page IGDB has cataloged. Returns null when:
+   *   - The Steam app id is not in IGDB's external_games index.
+   *   - The IGDB call rate-limits and there is no stale cache to fall back on.
+   * Both cases are caller-recoverable — fall through to fuzzy search.
+   *
+   * Cache: per-Steam-SKU, 24h TTL, allowStale on 429 (mirrors search()).
+   * In-flight dedup: concurrent callers for the same SKU share one IGDB
+   * round-trip (which itself includes a downstream fetchGameData call).
+   */
+  async findBySteamSku(steamSku: string): Promise<IgdbGameData | null> {
+    const key = steamSku;
+
+    const cached = this.cache.get<CachedExternalGame>(
+      EXTERNAL_GAMES_CACHE,
+      key,
+    );
+    if (cached !== undefined) {
+      this.logger.debug({ steamSku, key }, 'IGDB external_games cache hit');
+      return cached.data;
+    }
+
+    const inFlight = this.inFlightExternalGames.get(key);
+    if (inFlight) {
+      this.logger.debug(
+        { steamSku, key },
+        'IGDB external_games coalesced to in-flight request',
+      );
+      return inFlight;
+    }
+
+    const promise = this.fetchAndCacheExternalGame(steamSku, key).finally(
+      () => {
+        this.inFlightExternalGames.delete(key);
+      },
+    );
+    this.inFlightExternalGames.set(key, promise);
+    return promise;
+  }
+
+  private async fetchAndCacheExternalGame(
+    steamSku: string,
+    key: string,
+  ): Promise<IgdbGameData | null> {
+    try {
+      const token = await this.twitchAuth.getAccessToken();
+      const clientId = this.config.getOrThrow<string>('TWITCH_CLIENT_ID');
+
+      const response = await firstValueFrom(
+        this.http.post<IgdbExternalGameRow[]>(
+          `${IGDB_BASE_URL}/external_games`,
+          `where external_game_source = ${EXTERNAL_GAME_SOURCE_STEAM} & uid = "${steamSku}"; fields game; limit 1;`,
+          {
+            headers: {
+              'Client-ID': clientId,
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'text/plain',
+            },
+          },
+        ),
+      );
+
+      const rows = response.data ?? [];
+      if (rows.length === 0) {
+        // Negative cache: shorter TTL than positive hits because IGDB may
+        // index the SKU later (newly-released game, late curation).
+        const ttlMs = this.config.get<number>(
+          'IGDB_EXTERNAL_GAMES_NOT_FOUND_TTL_MS',
+          60 * 60 * 1000,
+        );
+        this.cache.set<CachedExternalGame>(
+          EXTERNAL_GAMES_CACHE,
+          key,
+          { data: null },
+          ttlMs,
+        );
+        this.logger.debug(
+          { steamSku, key },
+          'IGDB external_games miss — cached as null',
+        );
+        return null;
+      }
+
+      const igdbId = rows[0].game;
+      const data = await this.fetchGameData(igdbId);
+      this.cache.set<CachedExternalGame>(EXTERNAL_GAMES_CACHE, key, { data });
+      this.logger.debug(
+        { steamSku, key, igdbId, name: data.name },
+        'IGDB external_games hit and cached',
+      );
+      return data;
+    } catch (err) {
+      // 429 fallback mirrors search(): serve stale if retained, else null.
+      // Lets the caller fall through to fuzzy search instead of error-failing.
+      if (this.isRateLimitError(err)) {
+        const stale = this.cache.get<CachedExternalGame>(
+          EXTERNAL_GAMES_CACHE,
+          key,
+          { allowStale: true },
+        );
+        this.logger.warn(
+          { steamSku, key, hasStale: Boolean(stale) },
+          'IGDB rate limit (429) on external_games — serving stale cache or null',
+        );
+        return stale?.data ?? null;
+      }
+      throw err;
+    }
   }
 
   async importById(igdbId: number): Promise<ResolvedGame> {
